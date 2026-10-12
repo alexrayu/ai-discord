@@ -3,8 +3,8 @@
 import time
 from dataclasses import dataclass, field
 
-# Persona key -> display name.
-AI_NAMES = {"claude": "Claude", "gpt": "GPT"}
+# Persona key (model family) -> name shown in Discord and to the AIs.
+AI_NAMES = {"claude": "Claude", "gpt": "Quill"}
 
 
 @dataclass(frozen=True)

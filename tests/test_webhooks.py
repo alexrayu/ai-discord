@@ -71,7 +71,7 @@ async def test_reuses_own_webhook_and_disables_mentions():
 
 
 async def test_one_webhook_per_persona():
-    claude, gpt = own_hook("Claude"), own_hook("GPT")
+    claude, gpt = own_hook("Claude"), own_hook("Quill")
     hooks, channel, _ = make_hooks([gpt, claude])
     await hooks.send(channel, "claude", "a")
     await hooks.send(channel, "gpt", "b")

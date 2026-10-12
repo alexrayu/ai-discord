@@ -1,8 +1,8 @@
 # ai-discord
 
-Discord group chat between server members, Claude and GPT. One bot process decides who speaks and posts both AIs through a webhook. See `PLAN.md` for the full spec.
+Discord group chat between server members, Claude (Anthropic) and Quill (GPT, OpenAI). One bot process decides who speaks and posts both AIs through a webhook. See `PLAN.md` for the full spec.
 
-Status: milestone 2. Claude replies in the allowed channels; GPT follows in milestone 3.
+Status: milestone 2. Claude replies in the allowed channels; Quill follows in milestone 3.
 
 ## Discord setup
 
@@ -38,4 +38,4 @@ Tests: `.venv/bin/pytest`
 
 ## Avatars
 
-Put `claude.png` and `gpt.png` into `avatars/` (jpg, webp and gif work too), square, at least 128×128. They are uploaded to the persona webhooks when the bot starts; after replacing a file, restart the bot. Without a file, the persona gets Discord's default icon.
+Put `claude.png` and `gpt.png` (Quill) into `avatars/` (jpg, webp and gif work too), square, at least 128×128. They are uploaded to the persona webhooks when the bot starts; after replacing a file, restart the bot. Without a file, the persona gets Discord's default icon.

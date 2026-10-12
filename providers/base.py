@@ -7,7 +7,8 @@ from typing import Protocol
 
 from transcript import AI_NAMES, TranscriptMessage
 
-RESERVED_NAMES = {name.lower() for name in AI_NAMES.values()} | {"system"}
+# Humans may not use an AI name, a model family name or "System".
+RESERVED_NAMES = {name.lower() for name in AI_NAMES.values()} | set(AI_NAMES) | {"system"}
 PASS_STRIP = string.whitespace + string.punctuation + "“”‘’«»"
 
 

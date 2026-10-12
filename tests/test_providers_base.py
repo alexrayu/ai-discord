@@ -16,7 +16,7 @@ def ai(persona, text):
 
 @pytest.mark.parametrize(
     "name, expected",
-    [("Walrus", "Walrus"), ("claude", "claude (human)"), ("GPT", "GPT (human)"), ("System", "System (human)"),
+    [("Walrus", "Walrus"), ("claude", "claude (human)"), ("GPT", "GPT (human)"), ("quill", "quill (human)"), ("System", "System (human)"),
      ("[Claude]", "Claude (human)"), ("a]b\n[c", "abc"), ("", "Someone")],
 )
 def test_human_label(name, expected):
@@ -28,7 +28,7 @@ def test_human_label(name, expected):
 def test_roles_labels_and_merging_from_claude_view():
     transcript = [human("hi"), ai("gpt", "yo"), ai("claude", "hey"), human("q", "Anna")]
     assert to_messages(transcript, "claude") == [
-        {"role": "user", "content": "[Walrus]: hi\n\n[GPT]: yo"},
+        {"role": "user", "content": "[Walrus]: hi\n\n[Quill]: yo"},
         {"role": "assistant", "content": "hey"},
         {"role": "user", "content": "[Anna]: q"},
     ]
@@ -62,8 +62,8 @@ def test_pass(text):
     [
         ("PASS on that, but no.", "PASS on that, but no."),
         ("[Claude]: Nope.", "Nope."),
-        ("GPT: you're wrong", "GPT: you're wrong"),  # only the own name is stripped
-        ("Fine.\n[GPT]: I agree\n[Walrus]: ok", "Fine."),
+        ("Quill: you're wrong", "Quill: you're wrong"),  # only the own name is stripped
+        ("Fine.\n[Quill]: I agree\n[Walrus]: ok", "Fine."),
         ("Fine.\n[walrus]: ok", "Fine."),
         ("See [docs]: link", "See [docs]: link"),
     ],
@@ -73,7 +73,7 @@ def test_reply_text(text, expected):
 
 
 def test_impersonation_only_reply_is_pass():
-    assert finalize(Reply("[GPT]: PASS too", "end"), "claude", TRANSCRIPT) is None
+    assert finalize(Reply("[Quill]: PASS too", "end"), "claude", TRANSCRIPT) is None
 
 
 def test_truncated_reply_marked_not_pass():
@@ -83,3 +83,10 @@ def test_truncated_reply_marked_not_pass():
 
 def test_refusal_is_pass():
     assert finalize(Reply("Sorry", "refusal"), "claude", TRANSCRIPT) is None
+
+
+def test_prompts_use_ai_names():
+    from prompts import load_prompts
+    prompts = load_prompts()
+    assert "{claude}" not in prompts["claude"] and "{gpt}" not in prompts["gpt"]
+    assert "@Quill" in prompts["claude"] and "your name is Quill" in prompts["gpt"]
