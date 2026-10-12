@@ -7,7 +7,8 @@ from bot import is_chat_message, is_owner
 from config import load_config
 
 OWNER, CHANNEL = 111, 222
-ENV = {"DISCORD_TOKEN": "t", "ALLOWED_CHANNEL_IDS": str(CHANNEL), "ANTHROPIC_API_KEY": "k", "CLAUDE_MODEL": "m"}
+ENV = {"DISCORD_TOKEN": "t", "ALLOWED_CHANNEL_IDS": str(CHANNEL), "ANTHROPIC_API_KEY": "k", "CLAUDE_MODEL": "m",
+       "OPENAI_API_KEY": "o", "GPT_MODEL": "g"}
 CONFIG = load_config({**ENV, "OWNER_USER_ID": str(OWNER)})
 
 

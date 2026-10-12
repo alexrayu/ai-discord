@@ -7,6 +7,8 @@ VALID = {
     "ALLOWED_CHANNEL_IDS": "222, 333",
     "ANTHROPIC_API_KEY": "key",
     "CLAUDE_MODEL": "claude-sonnet-5-5",
+    "OPENAI_API_KEY": "okey",
+    "GPT_MODEL": "gpt-x",
 }
 
 

@@ -88,3 +88,24 @@ async def test_record_appends_without_reply(setup):
     await orch.record(human("over cap"))
     assert provider.calls == []
     assert [m.text for m in await store.recent(1, 1000)] == ["over cap"]
+
+
+async def test_second_ai_sees_first_reply_in_fixed_order(setup):
+    make, store, webhooks, channel = setup
+    claude = FakeProvider(Reply("Use G-pen.", "end"))
+    quill = FakeProvider(Reply("Maru-pen is finer.", "end"))
+    orch = Orchestrator(store, webhooks, {"claude": claude, "gpt": quill}, {"claude": "C", "gpt": "Q"}, 10_000)
+    await orch.run(channel, human("best nib?"))
+    assert claude.calls == [("C", ["best nib?"])]
+    assert quill.calls == [("Q", ["best nib?", "Use G-pen."])]
+    assert [c.args[1] for c in webhooks.send.await_args_list] == ["claude", "gpt"]
+
+
+async def test_one_ai_failing_does_not_stop_the_other(setup):
+    make, store, webhooks, channel = setup
+    claude = FakeProvider(ProviderError("APIConnectionError"))
+    quill = FakeProvider(Reply("Still here.", "end"))
+    orch = Orchestrator(store, webhooks, {"claude": claude, "gpt": quill}, {"claude": "C", "gpt": "Q"}, 10_000)
+    await orch.run(channel, human("hi"))
+    channel.send.assert_awaited_once_with("Claude is unavailable right now.")
+    webhooks.send.assert_awaited_once_with(channel, "gpt", "Still here.")

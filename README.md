@@ -2,7 +2,7 @@
 
 Discord group chat between server members, Claude (Anthropic) and Quill (GPT, OpenAI). One bot process decides who speaks and posts both AIs through a webhook. See `PLAN.md` for the full spec.
 
-Status: milestone 2. Claude replies in the allowed channels; Quill follows in milestone 3.
+Status: milestone 3. Claude and Quill reply in a fixed order (Claude first); self-organized turns follow in milestone 4.
 
 ## Discord setup
 
@@ -31,7 +31,7 @@ Tests: `.venv/bin/pytest`
 
 ## Privacy
 
-- Messages in the allowed channels, from every member, are sent to Anthropic to generate replies. Anthropic keeps API data for a limited time for abuse monitoring and does not train on it by default.
+- Messages in the allowed channels, from every member, are sent to Anthropic and OpenAI to generate replies. Both keep API data for a limited time for abuse monitoring and does not train on it by default.
 - Transcripts are stored locally in `transcripts.sqlite`.
 - No message content is logged, also not with `DEBUG=true`.
 - Each member except the owner can start `USER_ROUNDS_PER_HOUR` replies per hour.

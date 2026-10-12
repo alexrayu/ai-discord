@@ -22,6 +22,9 @@ class Config:
     anthropic_api_key: str
     claude_model: str
     claude_effort: str
+    openai_api_key: str
+    gpt_model: str
+    gpt_reasoning_effort: str | None
     max_reply_tokens: int
     transcript_char_limit: int
     user_rounds_per_hour: int
@@ -30,7 +33,8 @@ class Config:
 
 def load_config(env: Mapping[str, str] | None = None) -> Config:
     if env is None:
-        load_dotenv()
+        # .env wins over the shell, which may export unrelated keys for the same SDKs.
+        load_dotenv(override=True)
         env = os.environ
 
     errors: list[str] = []
@@ -74,6 +78,9 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
         anthropic_api_key=required("ANTHROPIC_API_KEY"),
         claude_model=required("CLAUDE_MODEL"),
         claude_effort=effort,
+        openai_api_key=required("OPENAI_API_KEY"),
+        gpt_model=required("GPT_MODEL"),
+        gpt_reasoning_effort=env.get("GPT_REASONING_EFFORT", "").strip() or None,
         max_reply_tokens=positive_int("MAX_REPLY_TOKENS", 4000),
         transcript_char_limit=positive_int("TRANSCRIPT_CHAR_LIMIT", 60000),
         user_rounds_per_hour=positive_int("USER_ROUNDS_PER_HOUR", 20),

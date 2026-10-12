@@ -10,6 +10,7 @@ from config import Config, ConfigError, load_config
 from orchestrator import Orchestrator
 from prompts import load_prompts
 from providers.claude import ClaudeProvider
+from providers.gpt import GPTProvider
 from ratelimit import RateLimiter
 from store import Store
 from transcript import TranscriptMessage
@@ -17,7 +18,7 @@ from webhooks import Webhooks
 
 DB_PATH = Path(__file__).parent / "transcripts.sqlite"
 # These log message content or request bodies at DEBUG; DEBUG mode must never do that.
-QUIET_LOGGERS = ("discord", "anthropic", "httpx", "httpcore", "aiosqlite")
+QUIET_LOGGERS = ("discord", "anthropic", "openai", "httpx", "httpcore", "aiosqlite")
 
 log = logging.getLogger("ai-discord")
 
@@ -51,7 +52,8 @@ class Bot(discord.Client):
         self.orchestrator = Orchestrator(
             store=self.store,
             webhooks=Webhooks(self),
-            providers={"claude": ClaudeProvider(self.config)},
+            # Fixed order for now: Quill sees Claude's reply of the same turn.
+            providers={"claude": ClaudeProvider(self.config), "gpt": GPTProvider(self.config)},
             prompts=load_prompts(),
             char_limit=self.config.transcript_char_limit,
         )

@@ -6,16 +6,20 @@ from config import Config
 from providers.base import ProviderError, Reply, to_messages
 from transcript import TranscriptMessage
 
+# Pinned so an inherited ANTHROPIC_BASE_URL can never route chats through another endpoint.
+BASE_URL = "https://api.anthropic.com"
 STOP = {"max_tokens": "truncated", "refusal": "refusal"}
 
 
 class ClaudeProvider:
     name = "claude"
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, client: AsyncAnthropic | None = None):
         self._config = config
         # SDK retries 408/409/429/5xx and connection errors with backoff.
-        self._client = AsyncAnthropic(api_key=config.anthropic_api_key, max_retries=2, timeout=120)
+        self._client = client or AsyncAnthropic(
+            api_key=config.anthropic_api_key, base_url=BASE_URL, max_retries=2, timeout=120
+        )
 
     async def respond(self, system: str, transcript: list[TranscriptMessage]) -> Reply:
         # Thinking is left at the model default (it can't be disabled on current models); effort bounds it.

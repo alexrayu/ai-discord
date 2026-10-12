@@ -64,6 +64,7 @@ ANTHROPIC_API_KEY=
 OPENAI_API_KEY=
 CLAUDE_MODEL=claude-sonnet-5-5
 GPT_MODEL=                # required; set to the OpenAI model you want
+GPT_REASONING_EFFORT=     # optional; passed as reasoning_effort, only for reasoning models
 OWNER_USER_ID=            # optional; runs bot commands, exempt from the rate cap. Empty: the owner of the server the message comes from
 ALLOWED_CHANNEL_IDS=      # comma-separated; bot ignores all other channels
 AI_TURN_BUDGET=3          # max consecutive AI messages before waiting for a human
@@ -173,8 +174,9 @@ Transcript conversion rules (shared code in `base.py`, identical for both provid
 - Use `MAX_REPLY_TOKENS` as the output ceiling.
 
 Provider-specific:
+- **Both:** SDK clients get an explicit `base_url` (`https://api.anthropic.com`, `https://api.openai.com/v1`), and `.env` overrides the shell environment. The host shell may export `OPENAI_BASE_URL` / `OPENAI_API_KEY` for a company proxy; inheriting them would route private chats elsewhere.
 - **Claude:** current Claude models think by default, reasoning tokens count toward `max_tokens`, and on several current models thinking cannot be disabled (`{type: "disabled"}` returns 400). Omit the `thinking` parameter and control cost with `output_config: {effort: CLAUDE_EFFORT}` (default `low`, suited to chat); this works on every current model, so `CLAUDE_MODEL` stays freely swappable. No server-side refusal fallback: on Sonnet 5.5 it only retries `cyber` and `frontier_llm` declines, not `general_harms`, where art-related false positives would land; a refusal posts a notice instead. Enable prompt caching: stable system prompt first, a `cache_control` breakpoint on the last transcript content block, before the turn hint. In `DEBUG` mode, log `usage.cache_read_input_tokens` to verify caching works.
-- **GPT:** use the official SDK's Chat Completions API (verify the chosen `GPT_MODEL` is served there; otherwise use the Responses API with the same conversion rules). If `GPT_MODEL` is a reasoning model, send the lowest supported reasoning effort; pass the ceiling as `max_completion_tokens`.
+- **GPT:** use the official SDK's Chat Completions API (verify the chosen `GPT_MODEL` is served there; otherwise use the Responses API with the same conversion rules). `GPT_REASONING_EFFORT` is sent as `reasoning_effort` only when set (valid values depend on the model); the ceiling goes in `max_completion_tokens`. `finish_reason: length` → truncated, `content_filter` or a non-empty `message.refusal` → refusal.
 
 ## 9. Webhooks (`webhooks.py`)
 
@@ -223,7 +225,7 @@ Build and verify in this order. Each milestone must work before starting the nex
 
 1. **Skeleton:** config loading, Discord connection, channel filtering, ignoring bots and webhooks. Bot echoes human messages via the Claude persona webhook.
 2. **One AI:** Claude replies through its webhook, with transcript stored in SQLite per thread; prompts, reply handling (7.3) and the rate cap (7.7).
-3. **Two AIs, fixed order:** Claude then GPT, each seeing the other's reply.
+3. **Two AIs, fixed order:** Claude then Quill, each seeing the other's reply.
 4. **PASS + random order + budget + mentions:** the full self-organizing loop from 7.2, reply handling from 7.3, mentions and turn hints from 7.6.
 5. **Interruption + error handling:** 7.4 and 7.5.
 6. **Attachments:** images and text files per sections 6 and 8.
