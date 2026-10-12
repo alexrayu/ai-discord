@@ -11,11 +11,9 @@ from webhooks import Webhooks
 log = logging.getLogger("ai-discord")
 
 
-def is_owner_message(message: discord.Message, config: Config) -> bool:
-    """Only the owner, only in allowed channels or their threads; never bots or webhooks."""
+def is_chat_message(message: discord.Message, config: Config) -> bool:
+    """Any human, only in allowed channels or their threads; never bots or webhooks."""
     if message.webhook_id is not None or message.author.bot:
-        return False
-    if message.author.id != config.owner_user_id:
         return False
     channel = message.channel
     channel_id = channel.parent_id if isinstance(channel, discord.Thread) else channel.id
@@ -43,7 +41,7 @@ def main() -> None:
 
     @client.event
     async def on_message(message: discord.Message) -> None:
-        if not is_owner_message(message, config) or not message.content:
+        if not is_chat_message(message, config) or not message.content:
             return
         try:
             await webhooks.send(message.channel, "Claude", message.content, config.claude_avatar_url)

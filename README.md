@@ -1,8 +1,8 @@
 # ai-discord
 
-Discord group chat between you, Claude and GPT. One bot process decides who speaks and posts both AIs through a webhook. See `PLAN.md` for the full spec.
+Discord group chat between server members, Claude and GPT. One bot process decides who speaks and posts both AIs through a webhook. See `PLAN.md` for the full spec.
 
-Status: milestone 1 (skeleton). The bot echoes your messages back through the webhook as "Claude".
+Status: milestone 1 (skeleton). The bot echoes every human message in the allowed channels back through the webhook as "Claude".
 
 ## Discord setup
 
@@ -12,7 +12,7 @@ Status: milestone 1 (skeleton). The bot echoes your messages back through the we
 4. Under **OAuth2 → URL Generator**, select scope `bot` and these permissions:
    View Channels, Send Messages, Send Messages in Threads, Read Message History, Manage Webhooks.
    Open the generated URL and invite the bot to your server.
-5. In Discord, enable **Settings → Advanced → Developer Mode**. Then right-click your name → Copy User ID, and right-click each channel → Copy Channel ID.
+5. In Discord, enable **Settings → Advanced → Developer Mode**. Then right-click your name → Copy User ID (goes to `OWNER_USER_ID`, the user allowed to run bot commands), and right-click each channel → Copy Channel ID (or Copy Link: the last number in the URL is the channel ID).
 
 ## Install and run
 
