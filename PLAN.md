@@ -62,7 +62,7 @@ ai-discord/
 DISCORD_TOKEN=
 ANTHROPIC_API_KEY=
 OPENAI_API_KEY=
-CLAUDE_MODEL=claude-sonnet-5-5
+CLAUDE_MODEL=claude-haiku-5-5
 GPT_MODEL=                # required; set to the OpenAI model you want
 GPT_REASONING_EFFORT=     # optional; passed as reasoning_effort, only for reasoning models
 OWNER_USER_ID=            # optional; runs bot commands, exempt from the rate cap. Empty: the owner of the server the message comes from
