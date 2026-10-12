@@ -8,7 +8,7 @@ Primary use cases: critique of manga pages (images), coding discussions, general
 
 ## 2. Hard constraints
 
-- **Privacy is a hard requirement.** No telemetry, no analytics, no third-party services beyond Discord, Anthropic and OpenAI. No logging of message content to files or stdout by default (a `DEBUG` flag may enable it locally). Transcripts, including extracted text of text-file attachments, live only in a local SQLite file. Downloaded image bytes are kept in memory, never written to disk.
+- **Privacy is a hard requirement.** No telemetry, no analytics, no third-party services beyond Discord, Anthropic and OpenAI. No logging of message content to files or stdout, also not in `DEBUG` mode: library loggers that dump content or request bodies (discord, anthropic, openai, httpx) stay at INFO. Transcripts, including extracted text of text-file attachments, live only in a local SQLite file. Downloaded image bytes are kept in memory, never written to disk.
 - **Runs on Linux**, locally at first. Must be easy to move to a small VPS later (single process, no Docker requirement, but a Dockerfile is welcome as an optional extra).
 - **One process controls everything.** There must NOT be two independent bots. One orchestrator decides who speaks and posts as two personas via Discord webhooks.
 - All secrets come from `.env`. Nothing is hardcoded. `.env` is in `.gitignore`.
@@ -153,7 +153,7 @@ Common interface:
 ```python
 class Provider(Protocol):
     name: str  # "claude" | "gpt"
-    async def respond(self, transcript: list[TranscriptMessage]) -> Reply: ...
+    async def respond(self, system: str, transcript: list[TranscriptMessage]) -> Reply: ...
 ```
 
 `Reply` carries `text` and a normalized `stop` (`end` | `truncated` | `refusal`).
@@ -171,7 +171,7 @@ Transcript conversion rules (shared code in `base.py`, identical for both provid
 - Use `MAX_REPLY_TOKENS` as the output ceiling.
 
 Provider-specific:
-- **Claude:** current Claude models think by default, reasoning tokens count toward `max_tokens`, and on several current models thinking cannot be disabled (`{type: "disabled"}` returns 400). Omit the `thinking` parameter and control cost with `output_config: {effort: CLAUDE_EFFORT}` (default `low`, suited to chat); this works on every current model, so `CLAUDE_MODEL` stays freely swappable. Enable the server-side refusal fallback (`fallbacks: "default"`, beta `server-side-fallback-2026-07-01`) so a classifier false positive (e.g. on violent or explicit manga art) is retried on a fallback model instead of silently passing. Enable prompt caching: stable system prompt first, a `cache_control` breakpoint on the last transcript content block, before the turn hint. In `DEBUG` mode, log `usage.cache_read_input_tokens` to verify caching works.
+- **Claude:** current Claude models think by default, reasoning tokens count toward `max_tokens`, and on several current models thinking cannot be disabled (`{type: "disabled"}` returns 400). Omit the `thinking` parameter and control cost with `output_config: {effort: CLAUDE_EFFORT}` (default `low`, suited to chat); this works on every current model, so `CLAUDE_MODEL` stays freely swappable. No server-side refusal fallback: on Sonnet 5.5 it only retries `cyber` and `frontier_llm` declines, not `general_harms`, where art-related false positives would land; a refusal posts a notice instead. Enable prompt caching: stable system prompt first, a `cache_control` breakpoint on the last transcript content block, before the turn hint. In `DEBUG` mode, log `usage.cache_read_input_tokens` to verify caching works.
 - **GPT:** use the official SDK's Chat Completions API (verify the chosen `GPT_MODEL` is served there; otherwise use the Responses API with the same conversion rules). If `GPT_MODEL` is a reasoning model, send the lowest supported reasoning effort; pass the ceiling as `max_completion_tokens`.
 
 ## 9. Webhooks (`webhooks.py`)
@@ -220,7 +220,7 @@ Commands are not added to the transcript and do not cancel a running round (exce
 Build and verify in this order. Each milestone must work before starting the next.
 
 1. **Skeleton:** config loading, Discord connection, channel filtering, ignoring bots and webhooks. Bot echoes human messages via the Claude persona webhook.
-2. **One AI:** Claude replies through the webhook, with transcript stored in SQLite per thread.
+2. **One AI:** Claude replies through its webhook, with transcript stored in SQLite per thread; prompts, reply handling (7.3) and the rate cap (7.7).
 3. **Two AIs, fixed order:** Claude then GPT, each seeing the other's reply.
 4. **PASS + random order + budget + mentions:** the full self-organizing loop from 7.2, reply handling from 7.3, mentions and turn hints from 7.6.
 5. **Interruption + error handling:** 7.4 and 7.5.

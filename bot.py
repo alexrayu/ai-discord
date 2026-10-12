@@ -2,11 +2,22 @@
 
 import logging
 import sys
+from pathlib import Path
 
 import discord
 
 from config import Config, ConfigError, load_config
+from orchestrator import Orchestrator
+from prompts import load_prompts
+from providers.claude import ClaudeProvider
+from ratelimit import RateLimiter
+from store import Store
+from transcript import TranscriptMessage
 from webhooks import Webhooks
+
+DB_PATH = Path(__file__).parent / "transcripts.sqlite"
+# These log message content or request bodies at DEBUG; DEBUG mode must never do that.
+QUIET_LOGGERS = ("discord", "anthropic", "httpx", "httpcore", "aiosqlite")
 
 log = logging.getLogger("ai-discord")
 
@@ -20,35 +31,76 @@ def is_chat_message(message: discord.Message, config: Config) -> bool:
     return channel_id in config.allowed_channel_ids
 
 
+def is_owner(message: discord.Message, config: Config) -> bool:
+    owner_id = config.owner_user_id or (message.guild and message.guild.owner_id)
+    return message.author.id == owner_id
+
+
+class Bot(discord.Client):
+    def __init__(self, config: Config):
+        intents = discord.Intents.default()
+        intents.message_content = True
+        super().__init__(intents=intents)
+        self.config = config
+        self.limiter = RateLimiter(config.user_rounds_per_hour)
+        self.store: Store | None = None
+        self.orchestrator: Orchestrator | None = None
+
+    async def setup_hook(self) -> None:
+        self.store = await Store.open(DB_PATH)
+        self.orchestrator = Orchestrator(
+            store=self.store,
+            webhooks=Webhooks(self),
+            providers={"claude": ClaudeProvider(self.config)},
+            prompts=load_prompts(),
+            char_limit=self.config.transcript_char_limit,
+        )
+
+    async def close(self) -> None:
+        await super().close()
+        if self.store:
+            await self.store.close()
+
+    async def on_ready(self) -> None:
+        log.info("Connected as %s", self.user)
+
+    async def on_message(self, message: discord.Message) -> None:
+        if not is_chat_message(message, self.config) or not message.clean_content:
+            return
+        msg = TranscriptMessage(
+            channel_id=message.channel.id,
+            speaker="human",
+            text=message.clean_content,
+            display_name=message.author.display_name,
+            author_id=message.author.id,
+            discord_message_id=message.id,
+        )
+        try:
+            if is_owner(message, self.config) or not (wait := self.limiter.acquire(message.author.id)):
+                await self.orchestrator.run(message.channel, msg)
+                return
+            # Over the cap: keep the message as context, no reply.
+            await self.orchestrator.record(msg)
+            if self.limiter.should_notify(message.author.id):
+                await message.channel.send(
+                    f"{message.author.display_name}, you've hit the hourly limit; try again in {int(wait // 60) + 1} min.",
+                    allowed_mentions=discord.AllowedMentions.none(),
+                )
+        except discord.HTTPException as e:
+            log.error("Discord request failed in channel %s: %s %s", message.channel.id, e.status, e.code)
+
+
 def main() -> None:
     try:
         config = load_config()
     except ConfigError as e:
         sys.exit(f"Config error: {e}")
 
-    # discord.py stays at INFO so DEBUG never dumps gateway payloads with message content.
     logging.basicConfig(level=logging.DEBUG if config.debug else logging.INFO)
-    logging.getLogger("discord").setLevel(logging.INFO)
+    for name in QUIET_LOGGERS:
+        logging.getLogger(name).setLevel(logging.INFO)
 
-    intents = discord.Intents.default()
-    intents.message_content = True
-    client = discord.Client(intents=intents)
-    webhooks = Webhooks(client)
-
-    @client.event
-    async def on_ready() -> None:
-        log.info("Connected as %s", client.user)
-
-    @client.event
-    async def on_message(message: discord.Message) -> None:
-        if not is_chat_message(message, config) or not message.content:
-            return
-        try:
-            await webhooks.send(message.channel, "claude", message.content)
-        except discord.HTTPException as e:
-            log.error("Echo failed in channel %s: %s %s", message.channel.id, e.status, e.code)
-
-    client.run(config.discord_token, log_handler=None)
+    Bot(config).run(config.discord_token, log_handler=None)
 
 
 if __name__ == "__main__":

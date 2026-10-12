@@ -7,6 +7,9 @@ from dataclasses import dataclass
 from dotenv import load_dotenv
 
 
+EFFORTS = ("low", "medium", "high", "xhigh", "max")
+
+
 class ConfigError(Exception):
     pass
 
@@ -16,6 +19,12 @@ class Config:
     discord_token: str
     owner_user_id: int | None  # None: the owner of the server the message comes from
     allowed_channel_ids: frozenset[int]
+    anthropic_api_key: str
+    claude_model: str
+    claude_effort: str
+    max_reply_tokens: int
+    transcript_char_limit: int
+    user_rounds_per_hour: int
     debug: bool
 
 
@@ -38,6 +47,19 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
             return 0
         return int(raw) if raw else 0
 
+    def positive_int(key: str, default: int) -> int:
+        raw = env.get(key, "").strip()
+        if not raw:
+            return default
+        if not raw.isdigit() or int(raw) < 1:
+            errors.append(f"{key} must be a positive integer, got {raw!r}")
+            return default
+        return int(raw)
+
+    effort = env.get("CLAUDE_EFFORT", "").strip().lower() or "low"
+    if effort not in EFFORTS:
+        errors.append(f"CLAUDE_EFFORT must be one of {', '.join(EFFORTS)}, got {effort!r}")
+
     token = required("DISCORD_TOKEN")
     owner = snowflake("OWNER_USER_ID", env.get("OWNER_USER_ID", "").strip()) or None
     channels = frozenset(
@@ -49,6 +71,12 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
         discord_token=token,
         owner_user_id=owner,
         allowed_channel_ids=channels,
+        anthropic_api_key=required("ANTHROPIC_API_KEY"),
+        claude_model=required("CLAUDE_MODEL"),
+        claude_effort=effort,
+        max_reply_tokens=positive_int("MAX_REPLY_TOKENS", 4000),
+        transcript_char_limit=positive_int("TRANSCRIPT_CHAR_LIMIT", 60000),
+        user_rounds_per_hour=positive_int("USER_ROUNDS_PER_HOUR", 20),
         debug=env.get("DEBUG", "false").strip().lower() in ("1", "true", "yes"),
     )
 

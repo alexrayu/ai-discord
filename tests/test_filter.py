@@ -3,16 +3,12 @@ from unittest.mock import MagicMock
 import discord
 import pytest
 
-from bot import is_chat_message
-from config import Config
+from bot import is_chat_message, is_owner
+from config import load_config
 
 OWNER, CHANNEL = 111, 222
-CONFIG = Config(
-    discord_token="t",
-    owner_user_id=OWNER,
-    allowed_channel_ids=frozenset({CHANNEL}),
-    debug=False,
-)
+ENV = {"DISCORD_TOKEN": "t", "ALLOWED_CHANNEL_IDS": str(CHANNEL), "ANTHROPIC_API_KEY": "k", "CLAUDE_MODEL": "m"}
+CONFIG = load_config({**ENV, "OWNER_USER_ID": str(OWNER)})
 
 
 def message(author_id=OWNER, bot=False, webhook_id=None, channel=None):
@@ -48,3 +44,23 @@ def test_human_in_thread_of_allowed_channel():
 )
 def test_ignored(msg):
     assert not is_chat_message(msg, CONFIG)
+
+
+def test_owner_explicit():
+    assert is_owner(message(author_id=OWNER), CONFIG)
+    assert not is_owner(message(author_id=333), CONFIG)
+
+
+def test_owner_defaults_to_server_owner():
+    config = load_config(ENV)
+    msg = message(author_id=333)
+    msg.guild.owner_id = 333
+    assert is_owner(msg, config)
+    msg.guild.owner_id = 444
+    assert not is_owner(msg, config)
+
+
+def test_no_owner_in_dm_without_explicit_owner():
+    msg = message(author_id=333)
+    msg.guild = None
+    assert not is_owner(msg, load_config(ENV))

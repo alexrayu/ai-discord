@@ -2,7 +2,7 @@
 
 Discord group chat between server members, Claude and GPT. One bot process decides who speaks and posts both AIs through a webhook. See `PLAN.md` for the full spec.
 
-Status: milestone 1 (skeleton). The bot echoes every human message in the allowed channels back through the webhook as "Claude".
+Status: milestone 2. Claude replies in the allowed channels; GPT follows in milestone 3.
 
 ## Discord setup
 
@@ -31,8 +31,10 @@ Tests: `.venv/bin/pytest`
 
 ## Privacy
 
-- Messages are read from Discord and posted back to Discord. Nothing else leaves the machine in this milestone.
+- Messages in the allowed channels, from every member, are sent to Anthropic to generate replies. Anthropic keeps API data for a limited time for abuse monitoring and does not train on it by default.
+- Transcripts are stored locally in `transcripts.sqlite`.
 - No message content is logged, also not with `DEBUG=true`.
+- Each member except the owner can start `USER_ROUNDS_PER_HOUR` replies per hour.
 
 ## Avatars
 

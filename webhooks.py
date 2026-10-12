@@ -5,7 +5,8 @@ from pathlib import Path
 
 import discord
 
-PERSONAS = {"claude": "Claude", "gpt": "GPT"}
+from transcript import AI_NAMES
+
 AVATAR_DIR = Path(__file__).parent / "avatars"
 AVATAR_EXTENSIONS = ("png", "jpg", "jpeg", "webp", "gif")
 MESSAGE_LIMIT = 2000
@@ -51,7 +52,7 @@ class Webhooks:
 
     def __init__(self, client: discord.Client, avatar_dir: Path = AVATAR_DIR):
         self._client = client
-        self._avatars = {persona: _read_avatar(avatar_dir, persona) for persona in PERSONAS}
+        self._avatars = {persona: _read_avatar(avatar_dir, persona) for persona in AI_NAMES}
         self._cache: dict[tuple[int, str], discord.Webhook] = {}
         self._create_lock = asyncio.Lock()
 
@@ -82,7 +83,7 @@ class Webhooks:
         async with self._create_lock:
             if hook := self._cache.get(key):
                 return hook
-            name, avatar, own_id = PERSONAS[persona], self._avatars[persona], self._client.user.id
+            name, avatar, own_id = AI_NAMES[persona], self._avatars[persona], self._client.user.id
             hook = next(
                 (h for h in await channel.webhooks() if h.name == name and h.user and h.user.id == own_id),
                 None,
