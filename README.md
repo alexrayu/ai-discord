@@ -12,7 +12,9 @@ Status: milestone 1 (skeleton). The bot echoes every human message in the allowe
 4. Under **OAuth2 → URL Generator**, select scope `bot` and these permissions:
    View Channels, Send Messages, Send Messages in Threads, Read Message History, Manage Webhooks.
    Open the generated URL and invite the bot to your server.
-5. In Discord, enable **Settings → Advanced → Developer Mode**. Then right-click your name → Copy User ID (goes to `OWNER_USER_ID`, the user allowed to run bot commands), and right-click each channel → Copy Channel ID (or Copy Link: the last number in the URL is the channel ID).
+5. In Discord, enable **Settings → Advanced → Developer Mode**. Then right-click each channel → Copy Channel ID (or Copy Link: the last number in the URL is the channel ID).
+
+`OWNER_USER_ID` is optional. It names the user allowed to run bot commands; when empty, the server owner is used.
 
 ## Install and run
 

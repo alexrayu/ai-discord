@@ -4,14 +4,13 @@ from config import ConfigError, load_config
 
 VALID = {
     "DISCORD_TOKEN": "token",
-    "OWNER_USER_ID": "111",
     "ALLOWED_CHANNEL_IDS": "222, 333",
 }
 
 
 def test_valid():
     config = load_config(VALID)
-    assert config.owner_user_id == 111
+    assert config.owner_user_id is None
     assert config.allowed_channel_ids == {222, 333}
     assert config.claude_avatar_url is None
     assert config.debug is False
@@ -21,6 +20,10 @@ def test_valid():
 def test_missing_required(key):
     with pytest.raises(ConfigError, match=key):
         load_config({k: v for k, v in VALID.items() if k != key})
+
+
+def test_explicit_owner():
+    assert load_config({**VALID, "OWNER_USER_ID": "111"}).owner_user_id == 111
 
 
 def test_non_numeric_id():

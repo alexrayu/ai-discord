@@ -61,7 +61,7 @@ ANTHROPIC_API_KEY=
 OPENAI_API_KEY=
 CLAUDE_MODEL=claude-sonnet-5-5
 GPT_MODEL=                # required; set to the OpenAI model you want
-OWNER_USER_ID=            # only this Discord user can run bot commands; exempt from the rate cap
+OWNER_USER_ID=            # optional; runs bot commands, exempt from the rate cap. Empty: the owner of the server the message comes from
 ALLOWED_CHANNEL_IDS=      # comma-separated; bot ignores all other channels
 CLAUDE_AVATAR_URL=        # optional, https URL
 GPT_AVATAR_URL=           # optional, https URL
@@ -74,7 +74,7 @@ IMAGE_MAX_EDGE=1568       # long edge in px after downscaling
 DEBUG=false
 ```
 
-`config.py` fails fast with a clear error if a required value is missing (all keys above without a default value, including `GPT_MODEL`).
+`config.py` fails fast with a clear error if a required value is missing (all keys above without a default value except the optional `OWNER_USER_ID` and avatar URLs, including `GPT_MODEL`).
 
 ## 6. Data model
 
@@ -208,7 +208,7 @@ Prompts are loaded from files at startup and on a `!reload` command, so they can
 
 ## 11. Owner commands
 
-Bot-level commands, only for `OWNER_USER_ID`; from anyone else they are treated as normal chat messages:
+Bot-level commands, only for the owner (`OWNER_USER_ID`, or the server owner when it is empty); from anyone else they are treated as normal chat messages:
 - `!reset`: cancel any running round and clear the transcript of the current thread/channel.
 - `!reload`: reload prompt files.
 - `!budget N`: set the AI turn budget for the current thread (1–20, persisted).

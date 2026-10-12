@@ -14,7 +14,7 @@ class ConfigError(Exception):
 @dataclass(frozen=True)
 class Config:
     discord_token: str
-    owner_user_id: int
+    owner_user_id: int | None  # None: the owner of the server the message comes from
     allowed_channel_ids: frozenset[int]
     claude_avatar_url: str | None
     gpt_avatar_url: str | None
@@ -47,7 +47,7 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
         return value or None
 
     token = required("DISCORD_TOKEN")
-    owner = snowflake("OWNER_USER_ID", required("OWNER_USER_ID"))
+    owner = snowflake("OWNER_USER_ID", env.get("OWNER_USER_ID", "").strip()) or None
     channels = frozenset(
         snowflake("ALLOWED_CHANNEL_IDS", part.strip())
         for part in required("ALLOWED_CHANNEL_IDS").split(",")
