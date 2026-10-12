@@ -44,7 +44,7 @@ def main() -> None:
         if not is_chat_message(message, config) or not message.content:
             return
         try:
-            await webhooks.send(message.channel, "Claude", message.content, config.claude_avatar_url)
+            await webhooks.send(message.channel, "claude", message.content)
         except discord.HTTPException as e:
             log.error("Echo failed in channel %s: %s %s", message.channel.id, e.status, e.code)
 

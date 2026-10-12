@@ -1,10 +1,13 @@
-"""Persona posting through one bot-owned webhook per channel."""
+"""Persona posting through bot-owned webhooks."""
 
 import asyncio
+from pathlib import Path
 
 import discord
 
-WEBHOOK_NAME = "AI Chat"
+PERSONAS = {"claude": "Claude", "gpt": "GPT"}
+AVATAR_DIR = Path(__file__).parent / "avatars"
+AVATAR_EXTENSIONS = ("png", "jpg", "jpeg", "webp", "gif")
 MESSAGE_LIMIT = 2000
 FENCE = "```"
 
@@ -44,58 +47,58 @@ def split_message(text: str, limit: int = MESSAGE_LIMIT) -> list[str]:
 
 
 class Webhooks:
-    def __init__(self, client: discord.Client):
+    """One bot-owned webhook per persona and channel, avatar uploaded from avatars/<persona>.*."""
+
+    def __init__(self, client: discord.Client, avatar_dir: Path = AVATAR_DIR):
         self._client = client
-        self._cache: dict[int, discord.Webhook] = {}
+        self._avatars = {persona: _read_avatar(avatar_dir, persona) for persona in PERSONAS}
+        self._cache: dict[tuple[int, str], discord.Webhook] = {}
         self._create_lock = asyncio.Lock()
 
-    async def send(
-        self,
-        channel: discord.abc.Messageable,
-        username: str,
-        text: str,
-        avatar_url: str | None = None,
-    ) -> None:
+    async def send(self, channel: discord.abc.Messageable, persona: str, text: str) -> None:
         if isinstance(channel, discord.Thread):
             parent, thread = channel.parent, channel
         else:
             parent, thread = channel, discord.utils.MISSING
         for part in split_message(text):
-            await self._send_part(parent, thread, username, part, avatar_url)
+            await self._send_part(parent, thread, persona, part)
 
-    async def _send_part(self, parent, thread, username, text, avatar_url) -> None:
+    async def _send_part(self, parent, thread, persona, text) -> None:
         # A webhook deleted on Discord's side is recreated once.
         for attempt in range(2):
-            hook = await self._get(parent)
+            hook = await self._get(parent, persona)
             try:
-                await hook.send(
-                    text,
-                    username=username,
-                    avatar_url=avatar_url or discord.utils.MISSING,
-                    thread=thread,
-                    allowed_mentions=discord.AllowedMentions.none(),
-                )
+                await hook.send(text, thread=thread, allowed_mentions=discord.AllowedMentions.none())
                 return
             except discord.NotFound:
-                self._cache.pop(parent.id, None)
+                self._cache.pop((parent.id, persona), None)
                 if attempt:
                     raise
 
-    async def _get(self, channel) -> discord.Webhook:
-        hook = self._cache.get(channel.id)
-        if hook:
+    async def _get(self, channel, persona: str) -> discord.Webhook:
+        key = (channel.id, persona)
+        if hook := self._cache.get(key):
             return hook
         async with self._create_lock:
-            hook = self._cache.get(channel.id)
-            if hook:
+            if hook := self._cache.get(key):
                 return hook
-            own_id = self._client.user.id
+            name, avatar, own_id = PERSONAS[persona], self._avatars[persona], self._client.user.id
             hook = next(
-                (
-                    h for h in await channel.webhooks()
-                    if h.name == WEBHOOK_NAME and h.user and h.user.id == own_id
-                ),
+                (h for h in await channel.webhooks() if h.name == name and h.user and h.user.id == own_id),
                 None,
-            ) or await channel.create_webhook(name=WEBHOOK_NAME)
-            self._cache[channel.id] = hook
+            )
+            if hook is None:
+                hook = await channel.create_webhook(name=name, avatar=avatar)
+            elif avatar:
+                # Once per process start, so a replaced avatar file takes effect after a restart.
+                hook = await hook.edit(avatar=avatar)
+            self._cache[key] = hook
             return hook
+
+
+def _read_avatar(avatar_dir: Path, persona: str) -> bytes | None:
+    for ext in AVATAR_EXTENSIONS:
+        path = avatar_dir / f"{persona}.{ext}"
+        if path.is_file():
+            return path.read_bytes()
+    return None

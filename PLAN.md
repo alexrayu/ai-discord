@@ -10,7 +10,7 @@ Primary use cases: critique of manga pages (images), coding discussions, general
 
 - **Privacy is a hard requirement.** No telemetry, no analytics, no third-party services beyond Discord, Anthropic and OpenAI. No logging of message content to files or stdout by default (a `DEBUG` flag may enable it locally). Transcripts, including extracted text of text-file attachments, live only in a local SQLite file. Downloaded image bytes are kept in memory, never written to disk.
 - **Runs on Linux**, locally at first. Must be easy to move to a small VPS later (single process, no Docker requirement, but a Dockerfile is welcome as an optional extra).
-- **One process controls everything.** There must NOT be two independent bots. One orchestrator decides who speaks and posts as two personas via a Discord webhook.
+- **One process controls everything.** There must NOT be two independent bots. One orchestrator decides who speaks and posts as two personas via Discord webhooks.
 - All secrets come from `.env`. Nothing is hardcoded. `.env` is in `.gitignore`.
 - Model names are configurable in `.env` (no hardcoded model strings).
 
@@ -40,8 +40,9 @@ ai-discord/
 ├── transcript.py       # data model for messages + attachments
 ├── attachments.py      # ingest, download, resize, in-memory cache
 ├── store.py            # SQLite persistence, one transcript per Discord thread/channel
-├── webhooks.py         # create/reuse the persona webhook per channel, splitting
+├── webhooks.py         # create/reuse one webhook per persona and channel, splitting
 ├── config.py           # loads and validates .env
+├── avatars/            # claude.png, gpt.png (optional persona avatars)
 ├── prompts/
 │   ├── shared_rules.md # group-chat rules both AIs get
 │   ├── claude.md       # Claude-specific persona additions
@@ -63,8 +64,6 @@ CLAUDE_MODEL=claude-sonnet-5-5
 GPT_MODEL=                # required; set to the OpenAI model you want
 OWNER_USER_ID=            # optional; runs bot commands, exempt from the rate cap. Empty: the owner of the server the message comes from
 ALLOWED_CHANNEL_IDS=      # comma-separated; bot ignores all other channels
-CLAUDE_AVATAR_URL=        # optional, https URL
-GPT_AVATAR_URL=           # optional, https URL
 AI_TURN_BUDGET=3          # max consecutive AI messages before waiting for a human
 USER_ROUNDS_PER_HOUR=20   # per-user cap on rounds a member can start
 MAX_REPLY_TOKENS=4000     # hard ceiling incl. reasoning tokens; brevity is enforced by the prompt
@@ -74,7 +73,7 @@ IMAGE_MAX_EDGE=1568       # long edge in px after downscaling
 DEBUG=false
 ```
 
-`config.py` fails fast with a clear error if a required value is missing (all keys above without a default value except the optional `OWNER_USER_ID` and avatar URLs, including `GPT_MODEL`).
+`config.py` fails fast with a clear error if a required value is missing (all keys above without a default value except the optional `OWNER_USER_ID`, including `GPT_MODEL`).
 
 ## 6. Data model
 
@@ -106,7 +105,7 @@ When a human posts:
    a. Show the typing indicator in the channel while the request runs.
    b. Send the current transcript (including anything the other AI just said in this round) plus the turn hint (7.6) to that AI.
    c. If the reply is a PASS (7.3), post nothing. If that AI was addressed, apply the must-reply retry (7.6) first.
-   d. Otherwise, post the reply through the webhook as that persona, append it to the transcript, and increment `ai_turns`.
+   d. Otherwise, post the reply through that persona's webhook, append it to the transcript, and increment `ai_turns`.
    e. If `ai_turns >= budget`, stop and wait for a human.
 5. If at least one AI spoke in this round and the budget isn't exhausted, start another round. If both passed, stop.
 
@@ -129,7 +128,7 @@ Applied to the raw model output, in this order:
 
 ### 7.5 Errors
 - Rely on the SDKs' built-in retry (`max_retries=2`, exponential backoff, covers 408/409/429/5xx and connection errors). No extra retry wrapper. Set a request timeout of 120 s.
-- If a request still fails, treat it as PASS and post a short system notice in the channel via the bot itself (not the persona webhook), e.g. "GPT is unavailable right now."
+- If a request still fails, treat it as PASS and post a short system notice in the channel via the bot itself (not a persona webhook), e.g. "GPT is unavailable right now."
 - Never crash the process on a single failed request or download.
 
 ### 7.6 Mentions and turn hints
@@ -177,7 +176,7 @@ Provider-specific:
 
 ## 9. Webhooks (`webhooks.py`)
 
-- For each allowed channel, create (or find existing by name) one webhook named `AI Chat`. Each post sets `username` (`Claude` / `GPT`) and `avatar_url` (from config, optional) per message.
+- For each allowed channel, create (or find existing, bot-owned, by name) one webhook per persona, named `Claude` and `GPT`. Avatars come from local files `avatars/claude.*` and `avatars/gpt.*` (png, jpg, jpeg, webp, gif; optional), uploaded at creation and re-applied once per process start, so a replaced file takes effect after a restart. No image hosting needed.
 - Posting into a thread uses the parent channel's webhook with the `thread` parameter.
 - Every post sets `allowed_mentions` to none, so persona messages never ping anyone (including `@everyone` or `@here` if a model writes them).
 - Cache webhook objects in memory; recreate if Discord returns 404.
@@ -220,7 +219,7 @@ Commands are not added to the transcript and do not cancel a running round (exce
 
 Build and verify in this order. Each milestone must work before starting the next.
 
-1. **Skeleton:** config loading, Discord connection, channel filtering, ignoring bots and webhooks. Bot echoes human messages via the persona webhook.
+1. **Skeleton:** config loading, Discord connection, channel filtering, ignoring bots and webhooks. Bot echoes human messages via the Claude persona webhook.
 2. **One AI:** Claude replies through the webhook, with transcript stored in SQLite per thread.
 3. **Two AIs, fixed order:** Claude then GPT, each seeing the other's reply.
 4. **PASS + random order + budget + mentions:** the full self-organizing loop from 7.2, reply handling from 7.3, mentions and turn hints from 7.6.

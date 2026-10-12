@@ -16,8 +16,6 @@ class Config:
     discord_token: str
     owner_user_id: int | None  # None: the owner of the server the message comes from
     allowed_channel_ids: frozenset[int]
-    claude_avatar_url: str | None
-    gpt_avatar_url: str | None
     debug: bool
 
 
@@ -40,12 +38,6 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
             return 0
         return int(raw) if raw else 0
 
-    def avatar(key: str) -> str | None:
-        value = env.get(key, "").strip()
-        if value and not value.startswith("https://"):
-            errors.append(f"{key} must be an https:// URL")
-        return value or None
-
     token = required("DISCORD_TOKEN")
     owner = snowflake("OWNER_USER_ID", env.get("OWNER_USER_ID", "").strip()) or None
     channels = frozenset(
@@ -57,8 +49,6 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
         discord_token=token,
         owner_user_id=owner,
         allowed_channel_ids=channels,
-        claude_avatar_url=avatar("CLAUDE_AVATAR_URL"),
-        gpt_avatar_url=avatar("GPT_AVATAR_URL"),
         debug=env.get("DEBUG", "false").strip().lower() in ("1", "true", "yes"),
     )
 

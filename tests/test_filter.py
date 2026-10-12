@@ -11,8 +11,6 @@ CONFIG = Config(
     discord_token="t",
     owner_user_id=OWNER,
     allowed_channel_ids=frozenset({CHANNEL}),
-    claude_avatar_url=None,
-    gpt_avatar_url=None,
     debug=False,
 )
 

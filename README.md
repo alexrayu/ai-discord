@@ -33,3 +33,7 @@ Tests: `.venv/bin/pytest`
 
 - Messages are read from Discord and posted back to Discord. Nothing else leaves the machine in this milestone.
 - No message content is logged, also not with `DEBUG=true`.
+
+## Avatars
+
+Put `claude.png` and `gpt.png` into `avatars/` (jpg, webp and gif work too), square, at least 128×128. They are uploaded to the persona webhooks when the bot starts; after replacing a file, restart the bot. Without a file, the persona gets Discord's default icon.

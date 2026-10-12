@@ -12,7 +12,6 @@ def test_valid():
     config = load_config(VALID)
     assert config.owner_user_id is None
     assert config.allowed_channel_ids == {222, 333}
-    assert config.claude_avatar_url is None
     assert config.debug is False
 
 
@@ -29,11 +28,6 @@ def test_explicit_owner():
 def test_non_numeric_id():
     with pytest.raises(ConfigError, match="OWNER_USER_ID"):
         load_config({**VALID, "OWNER_USER_ID": "abc"})
-
-
-def test_avatar_must_be_https():
-    with pytest.raises(ConfigError, match="CLAUDE_AVATAR_URL"):
-        load_config({**VALID, "CLAUDE_AVATAR_URL": "/tmp/a.png"})
 
 
 def test_all_errors_reported_at_once():
