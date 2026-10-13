@@ -66,10 +66,11 @@ class Store:
             f"SELECT {COLUMNS} FROM messages WHERE channel_id = ? ORDER BY id DESC", (channel_id,)
         ) as cursor:
             async for row in cursor:
-                total += len(row[5])
+                msg = _row(row)
+                total += len(msg.text) + sum(len(a.text or "") for a in msg.attachments)
                 if messages and total > char_limit:
                     break
-                messages.append(_row(row))
+                messages.append(msg)
         messages.reverse()
 
         async with self._db.execute(

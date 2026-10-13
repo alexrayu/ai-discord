@@ -82,7 +82,7 @@ class Bot(discord.Client):
             display_name=message.author.display_name,
             author_id=message.author.id,
             discord_message_id=message.id,
-            attachments=tuple(from_discord(a) for a in message.attachments),
+            attachments=tuple([await from_discord(a) for a in message.attachments]),
         )
         try:
             if is_owner(message, self.config) or not (wait := self.limiter.acquire(message.author.id)):

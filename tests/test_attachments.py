@@ -27,12 +27,48 @@ def decode(image: ImageData) -> Image.Image:
 # Ingest
 
 @pytest.mark.parametrize(
-    "filename, content_type, kind",
-    [("a.png", "image/png", "image"), ("a.JPG", None, "image"), ("x", "image/webp; q=1", "image"), ("a.txt", "text/plain", "other")],
+    "filename, media_type, kind",
+    [("a.png", "image/png", "image"), ("a.JPG", "", "image"), ("x", "image/webp", "image"), ("a.txt", "text/plain", "text"),
+     ("main.py", "", "text"), ("data.json", "application/json", "text"), ("doc.pdf", "", "pdf"),
+     ("x", "application/pdf", "pdf"), ("a.zip", "application/zip", "other")],
 )
-def test_kind(filename, content_type, kind):
-    att = from_discord(SimpleNamespace(filename=filename, content_type=content_type, url="u"))
-    assert att.kind == kind and att.url == "u"
+def test_kind(filename, media_type, kind):
+    assert attachments.kind_of(filename, media_type) == kind
+
+
+def discord_file(filename, content_type, data=b"", size=None, error=None):
+    return SimpleNamespace(filename=filename, content_type=content_type, url="u", size=len(data) if size is None else size,
+                           read=AsyncMock(return_value=data, side_effect=error))
+
+
+async def test_image_metadata_only():
+    att = await from_discord(discord_file("a.png", "image/png; charset=x"))
+    assert (att.kind, att.media_type, att.text) == ("image", "image/png", None)
+    att_read = discord_file("a.png", "image/png")
+    await from_discord(att_read)
+    att_read.read.assert_not_called()
+
+
+async def test_text_read_once_and_decoded():
+    att = await from_discord(discord_file("a.md", "text/markdown", "héllo \xff".encode("latin-1")))
+    assert att.kind == "text" and att.text == "h\ufffdllo \ufffd"
+
+
+async def test_text_truncated_with_marker():
+    att = await from_discord(discord_file("a.log", "text/plain", b"x" * 20_001))
+    assert att.text == "x" * 20_000 + "\n[truncated]"
+
+
+async def test_text_over_size_cap_not_downloaded():
+    file = discord_file("a.log", "text/plain", size=1024 * 1024 + 1)
+    att = await from_discord(file)
+    assert att.text is None
+    file.read.assert_not_called()
+
+
+async def test_text_read_error_leaves_no_text():
+    att = await from_discord(discord_file("a.txt", "text/plain", error=discord.NotFound(MagicMock(status=404), "gone")))
+    assert att.text is None
 
 
 # Encoding

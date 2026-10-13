@@ -47,12 +47,16 @@ def label(msg: TranscriptMessage) -> str:
     return f"{name} (human)" if name.lower() in RESERVED_NAMES else name
 
 
-def attachment_note(att: Attachment, note: str | None = None) -> str:
-    """Text stand-in for an attachment that is not sent as an image."""
+def attachment_text(att: Attachment, note: str | None = None) -> str:
+    """Inlined text file, or a placeholder for anything not sent as an image."""
     name = re.sub(r"[\[\]\r\n]", "", att.filename)
-    if att.kind != "image":
-        return f"[file: {name} - not supported yet]"
-    return f"[image: {name} - {note}]" if note else f"[image: {name}]"
+    if att.kind == "image":
+        return f"[image: {name} - {note}]" if note else f"[image: {name}]"
+    if att.kind == "text":
+        return f"--- file: {name} ---\n{att.text}" if att.text is not None else f"[file: {name} - too large or unreadable]"
+    if att.kind == "pdf":
+        return f"[pdf: {name} - not supported yet]"
+    return f"[file: {name} - not supported yet]"
 
 
 def to_messages(
@@ -78,7 +82,7 @@ def to_messages(
                 if isinstance(image, ImageData):
                     parts.append(image_block(image))
                 else:
-                    _add(parts, attachment_note(att, image), "\n")
+                    _add(parts, attachment_text(att, image), "\n")
         if turns and turns[-1][0] == role:
             _add(turns[-1][1], parts[0], "\n\n")
             turns[-1][1].extend(parts[1:])

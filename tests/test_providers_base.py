@@ -114,3 +114,13 @@ def test_hint_after_own_message_is_new_user_turn():
     messages = to_messages([human("hi"), ai("claude", "yo")], "claude")
     add_hint(messages, "Your turn.")
     assert messages[-1] == {"role": "user", "content": "[System]: Your turn."}
+
+
+def test_text_files_inlined_and_placeholders():
+    from transcript import Attachment
+    atts = (Attachment("a.py", "text/x-python", "text", "u", "print(1)"), Attachment("big.log", "text/plain", "text", "u"),
+            Attachment("doc.pdf", "application/pdf", "pdf", "u"))
+    msg = TranscriptMessage(channel_id=1, speaker="human", text="see", display_name="Walrus", attachments=atts, id=1)
+    assert to_messages([msg], "claude")[0]["content"] == (
+        "[Walrus]: see\n--- file: a.py ---\nprint(1)\n[file: big.log - too large or unreadable]\n[pdf: doc.pdf - not supported yet]"
+    )

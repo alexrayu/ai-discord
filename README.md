@@ -2,7 +2,7 @@
 
 Discord group chat between server members, Claude (Anthropic) and Quill (GPT, OpenAI). One bot process decides who speaks and posts both AIs through a webhook. See `PLAN.md` for the full spec.
 
-Status: milestone 5, plus image attachments from milestone 6. Each AI decides whether to reply or stay silent; order is random, @mentioned AIs go first and must answer, and at most `AI_TURN_BUDGET` AI messages follow a human one. A new human message stops the running round and starts a fresh one. Both see the images in the 3 newest messages that have any. Text-file attachments and owner commands are not done yet.
+Status: milestone 6. Each AI decides whether to reply or stay silent; order is random, @mentioned AIs go first and must answer, and at most `AI_TURN_BUDGET` AI messages follow a human one. A new human message stops the running round and starts a fresh one. Both see the images in the 3 newest messages that have any, and the content of text files (up to 1 MB, first 20,000 characters); PDFs are not supported yet. Owner commands (milestone 7) are not done yet.
 
 ## Discord setup
 

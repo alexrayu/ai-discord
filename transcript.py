@@ -11,8 +11,9 @@ AI_NAMES = {"claude": "Claude", "gpt": "Quill"}
 class Attachment:
     filename: str
     media_type: str
-    kind: str  # "image" | "other"
+    kind: str  # "image" | "text" | "pdf" | "other"
     url: str
+    text: str | None = None  # text files only: content read once at ingest
 
 
 @dataclass(frozen=True)

@@ -1,4 +1,4 @@
-"""Attachment ingest and on-demand image loading. Image bytes stay in memory, never on disk."""
+"""Attachment ingest (text files read once) and on-demand image loading. Image bytes stay in memory, never on disk."""
 
 import asyncio
 import base64
@@ -18,6 +18,11 @@ from transcript import Attachment, ImageData, TranscriptMessage
 log = logging.getLogger(__name__)
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".heic", ".heif", ".avif"}
+TEXT_EXTENSIONS = {
+    ".txt", ".md", ".py", ".php", ".js", ".ts", ".json", ".yml", ".yaml", ".csv", ".html", ".css", ".twig", ".sql", ".log",
+}
+TEXT_MAX_BYTES = 1024 * 1024
+TEXT_MAX_CHARS = 20_000
 IMAGE_WINDOW = 3  # newest messages with images that carry bytes
 MAX_DOWNLOAD = 50 * 1024 * 1024
 MAX_ENCODED = 3_750_000  # base64 of this stays under the 5 MB per-image API limit
@@ -34,10 +39,32 @@ class TooLarge(Exception):
     pass
 
 
-def from_discord(att: discord.Attachment) -> Attachment:
+def kind_of(filename: str, media_type: str) -> str:
+    """By content type, with the file extension as fallback."""
+    extension = PurePath(filename).suffix.lower()
+    if media_type.startswith("image/") or extension in IMAGE_EXTENSIONS:
+        return "image"
+    if media_type == "application/pdf" or extension == ".pdf":
+        return "pdf"
+    if media_type.startswith("text/") or extension in TEXT_EXTENSIONS:
+        return "text"
+    return "other"
+
+
+async def from_discord(att: discord.Attachment) -> Attachment:
+    """Metadata; a text file's content is read here once and never downloaded again."""
     media_type = (att.content_type or "").split(";")[0].strip().lower()
-    is_image = media_type.startswith("image/") or PurePath(att.filename).suffix.lower() in IMAGE_EXTENSIONS
-    return Attachment(att.filename, media_type, "image" if is_image else "other", att.url)
+    kind = kind_of(att.filename, media_type)
+    text = None
+    if kind == "text" and att.size <= TEXT_MAX_BYTES:
+        try:
+            text = (await att.read()).decode("utf-8", errors="replace")
+        except discord.HTTPException as e:
+            log.warning("Text attachment unavailable: %s %s", e.status, e.code)
+        else:
+            if len(text) > TEXT_MAX_CHARS:
+                text = text[:TEXT_MAX_CHARS] + "\n[truncated]"
+    return Attachment(att.filename, media_type, kind, att.url, text)
 
 
 def encode(raw: bytes, max_edge: int) -> ImageData | None:

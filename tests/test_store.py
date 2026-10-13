@@ -67,3 +67,12 @@ async def test_migrates_pre_attachment_database(tmp_path):
     store = await Store.open(path)
     assert [(m.text, m.attachments) for m in await store.recent(1, 1000)] == [("old", ())]
     await store.close()
+
+
+async def test_inlined_file_text_counts_toward_limit(store):
+    from transcript import Attachment
+    await store.append(msg("topic"))
+    await store.append(msg("old"))
+    file = Attachment("a.txt", "text/plain", "text", "u", "x" * 50)
+    await store.append(TranscriptMessage(channel_id=1, speaker="human", text="f", display_name="W", attachments=(file,)))
+    assert [m.text for m in await store.recent(1, 52)] == ["topic", "f"]
