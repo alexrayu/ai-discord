@@ -29,6 +29,7 @@ class Config:
     transcript_char_limit: int
     image_max_edge: int
     user_rounds_per_hour: int
+    ai_turn_budget: int
     debug: bool
 
 
@@ -86,6 +87,7 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
         transcript_char_limit=positive_int("TRANSCRIPT_CHAR_LIMIT", 60000),
         image_max_edge=positive_int("IMAGE_MAX_EDGE", 1568),
         user_rounds_per_hour=positive_int("USER_ROUNDS_PER_HOUR", 20),
+        ai_turn_budget=positive_int("AI_TURN_BUDGET", 3),
         debug=env.get("DEBUG", "false").strip().lower() in ("1", "true", "yes"),
     )
 

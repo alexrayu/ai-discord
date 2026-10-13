@@ -27,7 +27,11 @@ class Provider(Protocol):
     name: str
 
     async def respond(
-        self, system: str, transcript: list[TranscriptMessage], images: Mapping[tuple[int, int], ImageData | str]
+        self,
+        system: str,
+        transcript: list[TranscriptMessage],
+        images: Mapping[tuple[int, int], ImageData | str],
+        hint: str,
     ) -> Reply: ...
 
 
@@ -80,6 +84,18 @@ def to_messages(
     while turns and turns[0][0] == "assistant":
         turns.pop(0)
     return [{"role": role, "content": _content(parts)} for role, parts in turns]
+
+
+def add_hint(messages: list[dict], hint: str) -> None:
+    """Turn hint as the final user content; never stored in the transcript."""
+    text = f"[System]: {hint}"
+    if messages and messages[-1]["role"] == "user":
+        content = messages[-1]["content"]
+        messages[-1]["content"] = (
+            f"{content}\n\n{text}" if isinstance(content, str) else [*content, {"type": "text", "text": text}]
+        )
+    else:
+        messages.append({"role": "user", "content": text})
 
 
 def _add(parts: list, part: str | dict, sep: str) -> None:

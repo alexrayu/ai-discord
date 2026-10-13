@@ -56,10 +56,10 @@ class Bot(discord.Client):
             store=self.store,
             webhooks=Webhooks(self),
             images=self.images,
-            # Fixed order for now: Quill sees Claude's reply of the same turn.
             providers={"claude": ClaudeProvider(self.config), "gpt": GPTProvider(self.config)},
             prompts=load_prompts(),
             char_limit=self.config.transcript_char_limit,
+            budget=self.config.ai_turn_budget,
         )
 
     async def close(self) -> None:

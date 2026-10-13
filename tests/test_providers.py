@@ -40,7 +40,7 @@ def claude_with(response=None, error=None):
 async def test_claude_stop_mapping_and_text(stop_reason, stop):
     blocks = [SimpleNamespace(type="thinking"), SimpleNamespace(type="text", text="Hi "), SimpleNamespace(type="text", text="there")]
     provider, client = claude_with(SimpleNamespace(content=blocks, stop_reason=stop_reason))
-    reply = await provider.respond("SYS", TRANSCRIPT, {})
+    reply = await provider.respond("SYS", TRANSCRIPT, {}, "HINT")
     assert (reply.text, reply.stop) == ("Hi there", stop)
     kwargs = client.messages.create.call_args.kwargs
     assert kwargs["system"] == "SYS" and kwargs["model"] == "claude-m"
@@ -52,7 +52,7 @@ async def test_claude_error_wrapped():
     error = anthropic.APIConnectionError(request=MagicMock())
     provider, _ = claude_with(error=error)
     with pytest.raises(ProviderError):
-        await provider.respond("SYS", TRANSCRIPT, {})
+        await provider.respond("SYS", TRANSCRIPT, {}, "HINT")
 
 
 # Quill
@@ -68,32 +68,32 @@ def gpt_with(config=CONFIG, content="Yo", finish_reason="stop", refusal=None, er
 @pytest.mark.parametrize("finish_reason, stop", [("stop", "end"), ("length", "truncated"), ("content_filter", "refusal")])
 async def test_gpt_stop_mapping(finish_reason, stop):
     provider, client = gpt_with(finish_reason=finish_reason)
-    reply = await provider.respond("SYS", TRANSCRIPT, {})
+    reply = await provider.respond("SYS", TRANSCRIPT, {}, "HINT")
     assert reply.stop == stop
     kwargs = client.chat.completions.create.call_args.kwargs
     assert kwargs["messages"][0] == {"role": "system", "content": "SYS"}
-    assert kwargs["messages"][1] == {"role": "user", "content": "[Walrus]: hi"}
+    assert kwargs["messages"][1] == {"role": "user", "content": "[Walrus]: hi\n\n[System]: HINT"}
     assert kwargs["max_completion_tokens"] == 4000
     assert "reasoning_effort" not in kwargs
 
 
 async def test_gpt_refusal_and_empty_content():
     provider, _ = gpt_with(content=None, refusal="I can't help with that.")
-    assert (await provider.respond("SYS", TRANSCRIPT, {})).stop == "refusal"
+    assert (await provider.respond("SYS", TRANSCRIPT, {}, "HINT")).stop == "refusal"
     provider, _ = gpt_with(content=None)
-    assert (await provider.respond("SYS", TRANSCRIPT, {})).text == ""
+    assert (await provider.respond("SYS", TRANSCRIPT, {}, "HINT")).text == ""
 
 
 async def test_gpt_reasoning_effort_passed_when_set():
     provider, client = gpt_with(config=load_config({**ENV, "GPT_REASONING_EFFORT": "low"}))
-    await provider.respond("SYS", TRANSCRIPT, {})
+    await provider.respond("SYS", TRANSCRIPT, {}, "HINT")
     assert client.chat.completions.create.call_args.kwargs["reasoning_effort"] == "low"
 
 
 async def test_gpt_error_wrapped():
     provider, _ = gpt_with(error=openai.APIConnectionError(request=MagicMock()))
     with pytest.raises(ProviderError):
-        await provider.respond("SYS", TRANSCRIPT, {})
+        await provider.respond("SYS", TRANSCRIPT, {}, "HINT")
 
 
 # Image blocks in each provider's native format
@@ -105,13 +105,34 @@ IMAGES = {(3, 0): ImageData("image/png", "B64")}
 
 async def test_claude_image_block():
     provider, client = claude_with(SimpleNamespace(content=[], stop_reason="end_turn"))
-    await provider.respond("SYS", IMAGE_TRANSCRIPT, IMAGES)
+    await provider.respond("SYS", IMAGE_TRANSCRIPT, IMAGES, "HINT")
     content = client.messages.create.call_args.kwargs["messages"][0]["content"]
-    assert content[1] == {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "B64"}}
+    assert content[1] == {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "B64"},
+                          "cache_control": {"type": "ephemeral"}}
 
 
 async def test_gpt_image_block():
     provider, client = gpt_with()
-    await provider.respond("SYS", IMAGE_TRANSCRIPT, IMAGES)
+    await provider.respond("SYS", IMAGE_TRANSCRIPT, IMAGES, "HINT")
     content = client.chat.completions.create.call_args.kwargs["messages"][1]["content"]
     assert content[1] == {"type": "image_url", "image_url": {"url": "data:image/png;base64,B64"}}
+
+
+# Turn hint and cache breakpoint
+
+async def test_claude_cache_breakpoint_before_hint():
+    provider, client = claude_with(SimpleNamespace(content=[], stop_reason="end_turn"))
+    await provider.respond("SYS", TRANSCRIPT, {}, "Your turn.")
+    kwargs = client.messages.create.call_args.kwargs
+    assert "cache_control" not in kwargs
+    assert kwargs["messages"] == [{"role": "user", "content": [
+        {"type": "text", "text": "[Walrus]: hi", "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": "[System]: Your turn."},
+    ]}]
+
+
+async def test_gpt_hint_last():
+    provider, client = gpt_with()
+    await provider.respond("SYS", TRANSCRIPT, {}, "Your turn.")
+    assert client.chat.completions.create.call_args.kwargs["messages"][-1] == {
+        "role": "user", "content": "[Walrus]: hi\n\n[System]: Your turn."}

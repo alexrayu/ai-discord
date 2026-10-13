@@ -45,3 +45,8 @@ def test_all_errors_reported_at_once():
 def test_invalid_values(key, value):
     with pytest.raises(ConfigError, match=key):
         load_config({**VALID, key: value})
+
+
+def test_turn_budget():
+    assert load_config(VALID).ai_turn_budget == 3
+    assert load_config({**VALID, "AI_TURN_BUDGET": "5"}).ai_turn_budget == 5

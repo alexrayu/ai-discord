@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from openai import APIError, AsyncOpenAI
 
 from config import Config
-from providers.base import ProviderError, Reply, to_messages
+from providers.base import ProviderError, Reply, add_hint, to_messages
 from transcript import ImageData, TranscriptMessage
 
 # Pinned so an inherited OPENAI_BASE_URL can never route chats through another endpoint.
@@ -24,13 +24,19 @@ class GPTProvider:
         )
 
     async def respond(
-        self, system: str, transcript: list[TranscriptMessage], images: Mapping[tuple[int, int], ImageData | str]
+        self,
+        system: str,
+        transcript: list[TranscriptMessage],
+        images: Mapping[tuple[int, int], ImageData | str],
+        hint: str,
     ) -> Reply:
+        messages = to_messages(transcript, self.name, images, _image_block)
+        add_hint(messages, hint)
         extra = {"reasoning_effort": self._config.gpt_reasoning_effort} if self._config.gpt_reasoning_effort else {}
         try:
             response = await self._client.chat.completions.create(
                 model=self._config.gpt_model,
-                messages=[{"role": "system", "content": system}, *to_messages(transcript, self.name, images, _image_block)],
+                messages=[{"role": "system", "content": system}, *messages],
                 max_completion_tokens=self._config.max_reply_tokens,
                 **extra,
             )

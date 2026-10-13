@@ -107,3 +107,10 @@ def test_images_placeholders_and_merging():
         {"img": "B64"},
         {"type": "text", "text": "[image: old.png]\n[image: x.heic - unsupported format]\n[file: note.txt - not supported yet]"},
     ]
+
+
+def test_hint_after_own_message_is_new_user_turn():
+    from providers.base import add_hint
+    messages = to_messages([human("hi"), ai("claude", "yo")], "claude")
+    add_hint(messages, "Your turn.")
+    assert messages[-1] == {"role": "user", "content": "[System]: Your turn."}
