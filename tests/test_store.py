@@ -45,3 +45,25 @@ async def test_anchor_not_duplicated(store):
 
 async def test_empty_channel(store):
     assert await store.recent(1, 1000) == []
+
+
+async def test_attachments_round_trip_and_update(store):
+    from transcript import Attachment
+    att = Attachment("a.png", "image/png", "image", "https://cdn/a")
+    stored = await store.append(TranscriptMessage(channel_id=1, speaker="human", text="", attachments=(att,)))
+    await store.update_attachments(stored.id, (Attachment("a.png", "image/png", "image", "https://cdn/b"),))
+    assert (await store.recent(1, 1000))[0].attachments[0].url == "https://cdn/b"
+
+
+async def test_migrates_pre_attachment_database(tmp_path):
+    import aiosqlite
+    path = tmp_path / "old.sqlite"
+    async with aiosqlite.connect(path) as db:
+        await db.execute("CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT, channel_id INTEGER NOT NULL,"
+                         " speaker TEXT NOT NULL, author_id INTEGER, display_name TEXT NOT NULL, text TEXT NOT NULL,"
+                         " timestamp REAL NOT NULL, discord_message_id INTEGER)")
+        await db.execute("INSERT INTO messages (channel_id, speaker, display_name, text, timestamp) VALUES (1, 'human', 'W', 'old', 0)")
+        await db.commit()
+    store = await Store.open(path)
+    assert [(m.text, m.attachments) for m in await store.recent(1, 1000)] == [("old", ())]
+    await store.close()

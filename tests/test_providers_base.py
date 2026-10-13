@@ -90,3 +90,19 @@ def test_prompts_use_ai_names():
     prompts = load_prompts()
     assert "{claude}" not in prompts["claude"] and "{gpt}" not in prompts["gpt"]
     assert "@Quill" in prompts["claude"] and "your name is Quill" in prompts["gpt"]
+
+
+# Attachments
+
+def test_images_placeholders_and_merging():
+    from transcript import Attachment, ImageData
+    atts = (Attachment("p1.png", "image/png", "image", "u"), Attachment("old.png", "image/png", "image", "u"),
+            Attachment("x.heic", "image/heic", "image", "u"), Attachment("n[o]te.txt", "text/plain", "other", "u"))
+    msg = TranscriptMessage(channel_id=1, speaker="human", text="look", display_name="Walrus", attachments=atts, id=7)
+    images = {(7, 0): ImageData("image/png", "B64"), (7, 2): "unsupported format"}
+    content = to_messages([human("hi"), msg], "claude", images, lambda i: {"img": i.data})[0]["content"]
+    assert content == [
+        {"type": "text", "text": "[Walrus]: hi\n\n[Walrus]: look"},
+        {"img": "B64"},
+        {"type": "text", "text": "[image: old.png]\n[image: x.heic — unsupported format]\n[file: note.txt — not supported yet]"},
+    ]

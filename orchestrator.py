@@ -6,6 +6,7 @@ from collections import defaultdict
 
 import discord
 
+from attachments import ImageLoader
 from providers.base import Provider, ProviderError, finalize
 from store import Store
 from transcript import AI_NAMES, TranscriptMessage
@@ -19,12 +20,14 @@ class Orchestrator:
         self,
         store: Store,
         webhooks: Webhooks,
+        images: ImageLoader,
         providers: dict[str, Provider],
         prompts: dict[str, str],
         char_limit: int,
     ):
         self._store = store
         self._webhooks = webhooks
+        self._images = images
         self._providers = providers
         self.prompts = prompts
         self._char_limit = char_limit
@@ -47,7 +50,8 @@ class Orchestrator:
         name = AI_NAMES[persona]
         try:
             async with channel.typing():
-                reply = await provider.respond(self.prompts[persona], transcript)
+                images = await self._images.load(channel, transcript)
+                reply = await provider.respond(self.prompts[persona], transcript, images)
         except ProviderError as e:
             log.error("%s request failed: %s", name, e)
             await channel.send(f"{name} is unavailable right now.")

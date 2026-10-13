@@ -8,6 +8,14 @@ AI_NAMES = {"claude": "Claude", "gpt": "Quill"}
 
 
 @dataclass(frozen=True)
+class Attachment:
+    filename: str
+    media_type: str
+    kind: str  # "image" | "other"
+    url: str
+
+
+@dataclass(frozen=True)
 class TranscriptMessage:
     channel_id: int
     speaker: str  # "human" or a key of AI_NAMES
@@ -15,5 +23,14 @@ class TranscriptMessage:
     display_name: str = ""
     author_id: int | None = None
     discord_message_id: int | None = None
+    attachments: tuple[Attachment, ...] = ()
     timestamp: float = field(default_factory=time.time)
     id: int | None = None
+
+
+@dataclass(frozen=True)
+class ImageData:
+    """Downscaled image ready for a provider request; never stored."""
+
+    media_type: str
+    data: str  # base64

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import discord
 
+from attachments import ImageLoader, from_discord
 from config import Config, ConfigError, load_config
 from orchestrator import Orchestrator
 from prompts import load_prompts
@@ -45,13 +46,16 @@ class Bot(discord.Client):
         self.config = config
         self.limiter = RateLimiter(config.user_rounds_per_hour)
         self.store: Store | None = None
+        self.images: ImageLoader | None = None
         self.orchestrator: Orchestrator | None = None
 
     async def setup_hook(self) -> None:
         self.store = await Store.open(DB_PATH)
+        self.images = ImageLoader(self.store, self.config.image_max_edge)
         self.orchestrator = Orchestrator(
             store=self.store,
             webhooks=Webhooks(self),
+            images=self.images,
             # Fixed order for now: Quill sees Claude's reply of the same turn.
             providers={"claude": ClaudeProvider(self.config), "gpt": GPTProvider(self.config)},
             prompts=load_prompts(),
@@ -60,6 +64,8 @@ class Bot(discord.Client):
 
     async def close(self) -> None:
         await super().close()
+        if self.images:
+            await self.images.close()
         if self.store:
             await self.store.close()
 
@@ -67,7 +73,7 @@ class Bot(discord.Client):
         log.info("Connected as %s", self.user)
 
     async def on_message(self, message: discord.Message) -> None:
-        if not is_chat_message(message, self.config) or not message.clean_content:
+        if not is_chat_message(message, self.config) or not (message.clean_content or message.attachments):
             return
         msg = TranscriptMessage(
             channel_id=message.channel.id,
@@ -76,6 +82,7 @@ class Bot(discord.Client):
             display_name=message.author.display_name,
             author_id=message.author.id,
             discord_message_id=message.id,
+            attachments=tuple(from_discord(a) for a in message.attachments),
         )
         try:
             if is_owner(message, self.config) or not (wait := self.limiter.acquire(message.author.id)):

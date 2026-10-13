@@ -2,7 +2,7 @@
 
 Discord group chat between server members, Claude (Anthropic) and Quill (GPT, OpenAI). One bot process decides who speaks and posts both AIs through a webhook. See `PLAN.md` for the full spec.
 
-Status: milestone 3. Claude and Quill reply in a fixed order (Claude first); self-organized turns follow in milestone 4.
+Status: milestone 3, plus image attachments from milestone 6. Claude and Quill reply in a fixed order (Claude first) and see the images in the 3 newest messages that have any; self-organized turns follow in milestone 4.
 
 ## Discord setup
 

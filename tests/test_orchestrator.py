@@ -14,6 +14,9 @@ class Typing(AbstractAsyncContextManager):
         return None
 
 
+NO_IMAGES = MagicMock(load=AsyncMock(return_value={}))
+
+
 class FakeProvider:
     name = "claude"
 
@@ -21,7 +24,7 @@ class FakeProvider:
         self.results = list(results)
         self.calls = []
 
-    async def respond(self, system, transcript):
+    async def respond(self, system, transcript, images):
         self.calls.append((system, [m.text for m in transcript]))
         result = self.results.pop(0)
         if isinstance(result, Exception):
@@ -38,7 +41,7 @@ async def setup(tmp_path):
 
     def make(*results):
         provider = FakeProvider(*results)
-        return Orchestrator(store, webhooks, {"claude": provider}, {"claude": "SYS"}, 10_000), provider
+        return Orchestrator(store, webhooks, NO_IMAGES, {"claude": provider}, {"claude": "SYS"}, 10_000), provider
 
     yield make, store, webhooks, channel
     await store.close()
@@ -94,7 +97,7 @@ async def test_second_ai_sees_first_reply_in_fixed_order(setup):
     make, store, webhooks, channel = setup
     claude = FakeProvider(Reply("Use G-pen.", "end"))
     quill = FakeProvider(Reply("Maru-pen is finer.", "end"))
-    orch = Orchestrator(store, webhooks, {"claude": claude, "gpt": quill}, {"claude": "C", "gpt": "Q"}, 10_000)
+    orch = Orchestrator(store, webhooks, NO_IMAGES, {"claude": claude, "gpt": quill}, {"claude": "C", "gpt": "Q"}, 10_000)
     await orch.run(channel, human("best nib?"))
     assert claude.calls == [("C", ["best nib?"])]
     assert quill.calls == [("Q", ["best nib?", "Use G-pen."])]
@@ -105,7 +108,7 @@ async def test_one_ai_failing_does_not_stop_the_other(setup):
     make, store, webhooks, channel = setup
     claude = FakeProvider(ProviderError("APIConnectionError"))
     quill = FakeProvider(Reply("Still here.", "end"))
-    orch = Orchestrator(store, webhooks, {"claude": claude, "gpt": quill}, {"claude": "C", "gpt": "Q"}, 10_000)
+    orch = Orchestrator(store, webhooks, NO_IMAGES, {"claude": claude, "gpt": quill}, {"claude": "C", "gpt": "Q"}, 10_000)
     await orch.run(channel, human("hi"))
     channel.send.assert_awaited_once_with("Claude is unavailable right now.")
     webhooks.send.assert_awaited_once_with(channel, "gpt", "Still here.")
