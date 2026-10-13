@@ -31,8 +31,8 @@ Tests: `.venv/bin/pytest`
 
 ## Privacy
 
-- Messages in the allowed channels, from every member, are sent to Anthropic and OpenAI to generate replies. Both keep API data for a limited time for abuse monitoring and don't train on it by default.
-- Transcripts are stored locally in `transcripts.sqlite`.
+- Messages in the allowed channels, from every member, are sent to Anthropic and OpenAI to generate replies, including images and text-file contents. Both keep API data for a limited time for abuse monitoring and don't train on it by default.
+- Transcripts, including the text of attached text files, are stored locally in `transcripts.sqlite`. Images are only kept in memory.
 - No message content is logged, also not with `DEBUG=true`.
 - Each member except the owner can start `USER_ROUNDS_PER_HOUR` replies per hour.
 
