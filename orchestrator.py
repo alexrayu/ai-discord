@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import random
+import traceback
 from collections import defaultdict
 
 import discord
@@ -52,41 +53,68 @@ class Orchestrator:
         self.prompts = prompts
         self._char_limit = char_limit
         self._budget = budget
-        self._locks: defaultdict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
+        # control: orders human messages (cancel, append, restart); never held while awaiting an AI.
+        # transcript: serializes appends; the only lock a round takes, so cancelling one can't deadlock.
+        self._control: defaultdict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
+        self._transcript: defaultdict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
+        self._rounds: dict[int, asyncio.Task] = {}
 
     async def record(self, msg: TranscriptMessage) -> None:
-        """Append without triggering a reply."""
-        async with self._locks[msg.channel_id]:
-            await self._store.append(msg)
+        """Append without triggering a reply or interrupting a running round."""
+        await self._append(msg)
 
-    async def run(self, channel: discord.abc.Messageable, msg: TranscriptMessage) -> None:
-        """Append a human message, then run rounds until both AIs pass or the turn budget is spent."""
-        async with self._locks[msg.channel_id]:
-            await self._store.append(msg)
-            transcript = await self._store.recent(channel.id, self._char_limit)
-            # AIs that were addressed and haven't answered yet; they go first and may not PASS.
-            owed = mentions(transcript[-1], transcript) & AI_NAMES.keys()
-            turns = 0
-            failed: set[str] = set()  # one error notice per AI and run, not one per round
-            while True:
-                queue = [p for p in self._providers if p not in failed]
-                random.shuffle(queue)
-                spoke = False
-                while queue:
-                    queue.sort(key=lambda p: p not in owed)
-                    persona = queue.pop(0)
-                    must = persona in owed
-                    owed.discard(persona)
-                    reply = await self._turn(channel, persona, must, failed)
-                    if reply is None:
-                        continue
-                    spoke = True
-                    turns += 1
-                    if turns >= self._budget:
-                        return
-                    owed |= mentions(reply, transcript) & AI_NAMES.keys()
-                if not spoke:
+    async def run(self, channel: discord.abc.Messageable, msg: TranscriptMessage) -> asyncio.Task:
+        """Stop the channel's running round, append the human message and start a new round."""
+        async with self._control[msg.channel_id]:
+            if (running := self._rounds.get(msg.channel_id)) and not running.done():
+                running.cancel()
+                await asyncio.wait({running})
+            await self._append(msg)
+            task = asyncio.create_task(self._rounds_until_quiet(channel))
+            self._rounds[msg.channel_id] = task
+            return task
+
+    async def _append(self, msg: TranscriptMessage) -> TranscriptMessage:
+        async with self._transcript[msg.channel_id]:
+            return await self._store.append(msg)
+
+    async def _rounds_until_quiet(self, channel) -> None:
+        """Rounds until both AIs pass or the turn budget is spent. Errors are logged, never raised."""
+        try:
+            await self._loop(channel)
+        except asyncio.CancelledError:
+            raise
+        except discord.HTTPException as e:
+            log.error("Discord request failed in channel %s: %s %s", channel.id, e.status, e.code)
+        except Exception as e:
+            # Type and stack only: exception messages may quote chat content.
+            log.error("Round failed in channel %s: %s\n%s", channel.id, type(e).__name__, "".join(traceback.format_tb(e.__traceback__)))
+
+    async def _loop(self, channel) -> None:
+        transcript = await self._store.recent(channel.id, self._char_limit)
+        # AIs that were addressed and haven't answered yet; they go first and may not PASS.
+        owed = mentions(transcript[-1], transcript) & AI_NAMES.keys()
+        turns = 0
+        failed: set[str] = set()  # one error notice per AI and run, not one per round
+        while True:
+            queue = [p for p in self._providers if p not in failed]
+            random.shuffle(queue)
+            spoke = False
+            while queue:
+                queue.sort(key=lambda p: p not in owed)
+                persona = queue.pop(0)
+                must = persona in owed
+                owed.discard(persona)
+                reply = await self._turn(channel, persona, must, failed)
+                if reply is None:
+                    continue
+                spoke = True
+                turns += 1
+                if turns >= self._budget:
                     return
+                owed |= mentions(reply, transcript) & AI_NAMES.keys()
+            if not spoke:
+                return
 
     async def _turn(self, channel, persona: str, must: bool, failed: set[str]) -> TranscriptMessage | None:
         """One AI request (plus the must-reply retry); the posted message, or None if nothing was posted."""
@@ -113,9 +141,19 @@ class Orchestrator:
             return None
         if text is None:
             return None
+        # Posting and recording run as their own task: a cancel landing here lets it finish, so a reply
+        # is never half-posted, never posted unrecorded, and is recorded before the next round starts.
+        post = asyncio.create_task(self._post(channel, persona, text))
+        try:
+            return await asyncio.shield(post)
+        except asyncio.CancelledError:
+            await post
+            raise
+
+    async def _post(self, channel, persona: str, text: str) -> TranscriptMessage:
         await self._webhooks.send(channel, persona, text)
-        return await self._store.append(
-            TranscriptMessage(channel_id=channel.id, speaker=persona, text=text, display_name=name)
+        return await self._append(
+            TranscriptMessage(channel_id=channel.id, speaker=persona, text=text, display_name=AI_NAMES[persona])
         )
 
     @staticmethod
