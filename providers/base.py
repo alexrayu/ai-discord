@@ -16,6 +16,10 @@ PASS_STRIP = string.whitespace + string.punctuation + "“”‘’«»"
 class ProviderError(Exception):
     """A request failed after the SDK's own retries."""
 
+    def __init__(self, message: str, out_of_credits: bool = False):
+        super().__init__(message)
+        self.out_of_credits = out_of_credits
+
 
 @dataclass(frozen=True)
 class Reply:

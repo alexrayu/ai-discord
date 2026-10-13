@@ -41,7 +41,8 @@ class GPTProvider:
                 **extra,
             )
         except APIError as e:
-            raise ProviderError(f"{type(e).__name__} {getattr(e, 'status_code', '')}".strip()) from e
+            out_of_credits = getattr(e, "code", None) == "insufficient_quota"
+            raise ProviderError(f"{type(e).__name__} {getattr(e, 'status_code', '')}".strip(), out_of_credits) from e
         choice = response.choices[0]
         if choice.message.refusal:
             return Reply(text="", stop="refusal")

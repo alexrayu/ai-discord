@@ -136,3 +136,32 @@ async def test_gpt_hint_last():
     await provider.respond("SYS", TRANSCRIPT, {}, "Your turn.")
     assert client.chat.completions.create.call_args.kwargs["messages"][-1] == {
         "role": "user", "content": "[Walrus]: hi\n\n[System]: Your turn."}
+
+
+# Out of credits
+
+def _response(status):
+    return MagicMock(status_code=status, headers={})
+
+
+@pytest.mark.parametrize(
+    "error, expected",
+    [
+        ({"type": "billing_error", "message": "x"}, True),
+        ({"type": "invalid_request_error", "message": "Your credit balance is too low to access the API."}, True),
+        ({"type": "invalid_request_error", "message": "max_tokens too large"}, False),
+    ],
+)
+async def test_claude_out_of_credits(error, expected):
+    provider, _ = claude_with(error=anthropic.BadRequestError("err", response=_response(400), body={"type": "error", "error": error}))
+    with pytest.raises(ProviderError) as e:
+        await provider.respond("SYS", TRANSCRIPT, {}, "HINT")
+    assert e.value.out_of_credits is expected
+
+
+@pytest.mark.parametrize("code, expected", [("insufficient_quota", True), ("rate_limit_exceeded", False)])
+async def test_gpt_out_of_credits(code, expected):
+    provider, _ = gpt_with(error=openai.RateLimitError("err", response=_response(429), body={"code": code}))
+    with pytest.raises(ProviderError) as e:
+        await provider.respond("SYS", TRANSCRIPT, {}, "HINT")
+    assert e.value.out_of_credits is expected

@@ -192,3 +192,15 @@ async def test_ai_addressed_after_speaking_goes_first_next_round(setup, monkeypa
     await make_two(claude, quill).run(channel, human("best nib?"))
     assert posted(webhooks) == [("claude", "G-pen."), ("gpt", "@Claude why?"), ("claude", "Pressure control.")]
     assert claude.calls[1][2] == ADDRESSED
+
+
+async def test_out_of_credits_notice_once_per_run(setup):
+    make, make_two, store, webhooks, channel = setup
+    claude = FakeProvider(*[ProviderError("BadRequestError 400", out_of_credits=True)] * 3)
+    quill = FakeProvider(Reply("a", "end"), Reply("b", "end"))
+    await make_two(claude, quill).run(channel, human("hi"))
+    assert len(claude.calls) == 1
+    (notice,), _ = channel.send.await_args
+    assert notice in [m.format(name="Claude") for m in orchestrator.OUT_OF_CREDITS]
+    channel.send.assert_awaited_once()
+    assert posted(webhooks) == [("gpt", "a"), ("gpt", "b")]

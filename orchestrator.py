@@ -19,6 +19,19 @@ log = logging.getLogger(__name__)
 YOUR_TURN = "Your turn. Reply or PASS."
 ADDRESSED = "You were addressed directly. Reply; PASS is not allowed."
 MUST_REPLY = "You must reply. A few words are enough."
+# Posted instead of the plain error notice when the provider account has run out of credits.
+OUT_OF_CREDITS = (
+    "{name} is sleeping and can't be bothered now.",
+    "{name} went out for snacks and forgot the way back.",
+    "{name} is on a coffee break that might last a while.",
+    "{name} is touching grass. Try again later.",
+    "{name} left to stare at a wall for a bit.",
+    "{name} is out of juice. Someone feed the meter.",
+    "{name} is AFK, probably napping on the keyboard.",
+    "{name} is on strike until the snack budget is restored.",
+    "{name} is meditating and refuses to come back yet.",
+    "{name} ran off to binge manga. Back later, maybe.",
+)
 
 
 class Orchestrator:
@@ -54,8 +67,9 @@ class Orchestrator:
             # AIs that were addressed and haven't answered yet; they go first and may not PASS.
             owed = mentions(transcript[-1], transcript) & AI_NAMES.keys()
             turns = 0
+            failed: set[str] = set()  # one error notice per AI and run, not one per round
             while True:
-                queue = list(self._providers)
+                queue = [p for p in self._providers if p not in failed]
                 random.shuffle(queue)
                 spoke = False
                 while queue:
@@ -63,7 +77,7 @@ class Orchestrator:
                     persona = queue.pop(0)
                     must = persona in owed
                     owed.discard(persona)
-                    reply = await self._turn(channel, persona, must)
+                    reply = await self._turn(channel, persona, must, failed)
                     if reply is None:
                         continue
                     spoke = True
@@ -74,7 +88,7 @@ class Orchestrator:
                 if not spoke:
                     return
 
-    async def _turn(self, channel, persona: str, must: bool) -> TranscriptMessage | None:
+    async def _turn(self, channel, persona: str, must: bool, failed: set[str]) -> TranscriptMessage | None:
         """One AI request (plus the must-reply retry); the posted message, or None if nothing was posted."""
         transcript = await self._store.recent(channel.id, self._char_limit)
         name = AI_NAMES[persona]
@@ -93,7 +107,9 @@ class Orchestrator:
                         break
         except ProviderError as e:
             log.error("%s request failed: %s", name, e)
-            await channel.send(f"{name} is unavailable right now.")
+            failed.add(persona)
+            notice = random.choice(OUT_OF_CREDITS) if e.out_of_credits else "{name} is unavailable right now."
+            await channel.send(notice.format(name=name))
             return None
         if text is None:
             return None

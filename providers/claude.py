@@ -43,7 +43,7 @@ class ClaudeProvider:
                 output_config={"effort": self._config.claude_effort},
             )
         except APIError as e:
-            raise ProviderError(f"{type(e).__name__} {getattr(e, 'status_code', '')}".strip()) from e
+            raise ProviderError(f"{type(e).__name__} {getattr(e, 'status_code', '')}".strip(), _out_of_credits(e)) from e
         text = "".join(block.text for block in response.content if block.type == "text")
         return Reply(text=text, stop=STOP.get(response.stop_reason, "end"))
 
@@ -58,3 +58,10 @@ def _cache_breakpoint(messages: list[dict]) -> None:
     blocks = [{"type": "text", "text": content}] if isinstance(content, str) else content
     blocks[-1] = {**blocks[-1], "cache_control": {"type": "ephemeral"}}
     messages[-1]["content"] = blocks
+
+
+def _out_of_credits(e: APIError) -> bool:
+    error = e.body.get("error") if isinstance(e.body, dict) else None
+    if not isinstance(error, dict):
+        return False
+    return error.get("type") == "billing_error" or "credit balance" in str(error.get("message", "")).lower()
