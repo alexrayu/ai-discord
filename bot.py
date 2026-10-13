@@ -7,6 +7,7 @@ from pathlib import Path
 import discord
 
 from attachments import ImageLoader, from_discord
+from commands import run_command
 from config import Config, ConfigError, load_config
 from orchestrator import Orchestrator
 from prompts import load_prompts
@@ -75,17 +76,20 @@ class Bot(discord.Client):
     async def on_message(self, message: discord.Message) -> None:
         if not is_chat_message(message, self.config) or not (message.clean_content or message.attachments):
             return
-        msg = TranscriptMessage(
-            channel_id=message.channel.id,
-            speaker="human",
-            text=message.clean_content,
-            display_name=message.author.display_name,
-            author_id=message.author.id,
-            discord_message_id=message.id,
-            attachments=tuple([await from_discord(a) for a in message.attachments]),
-        )
         try:
-            if is_owner(message, self.config) or not (wait := self.limiter.acquire(message.author.id)):
+            owner = is_owner(message, self.config)
+            if owner and await run_command(message, self.orchestrator, self.store, self.config):
+                return
+            msg = TranscriptMessage(
+                channel_id=message.channel.id,
+                speaker="human",
+                text=message.clean_content,
+                display_name=message.author.display_name,
+                author_id=message.author.id,
+                discord_message_id=message.id,
+                attachments=tuple([await from_discord(a) for a in message.attachments]),
+            )
+            if owner or not (wait := self.limiter.acquire(message.author.id)):
                 await self.orchestrator.run(message.channel, msg)
                 return
             # Over the cap: keep the message as context, no reply.

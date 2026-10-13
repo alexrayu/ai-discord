@@ -306,3 +306,24 @@ async def test_unexpected_error_logged_not_raised(setup, caplog):
     webhooks.send.side_effect = KeyError("secret chat text")
     await run(orch, channel, human("hi"))
     assert "KeyError" in caplog.text and "secret chat text" not in caplog.text
+
+
+# Owner commands
+
+async def test_per_thread_budget(setup):
+    make, make_two, store, webhooks, channel = setup
+    replies = [Reply(f"r{i}", "end") for i in range(5)]
+    await store.set_budget(1, 1)
+    await run(make_two(FakeProvider(*replies), FakeProvider(*replies)), channel, human("hi"))
+    assert len(posted(webhooks)) == 1
+
+
+async def test_reset_cancels_round_and_clears(setup):
+    make, make_two, store, webhooks, channel = setup
+    claude = GatedProvider(Reply("late", "end"))
+    orch = make_two(claude, FakeProvider())
+    task = await orch.run(channel, human("one"))
+    await claude.entered.wait()
+    await orch.reset(1)
+    assert task.cancelled() and await store.recent(1, 1000) == []
+    webhooks.send.assert_not_called()

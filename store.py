@@ -21,6 +21,10 @@ CREATE TABLE IF NOT EXISTS messages (
     attachments TEXT NOT NULL DEFAULT '[]'
 );
 CREATE INDEX IF NOT EXISTS messages_channel ON messages (channel_id, id);
+CREATE TABLE IF NOT EXISTS settings (
+    channel_id INTEGER PRIMARY KEY,
+    budget INTEGER
+);
 """
 COLUMNS = "id, channel_id, speaker, author_id, display_name, text, timestamp, discord_message_id, attachments"
 
@@ -52,6 +56,30 @@ class Store:
         )
         await self._db.commit()
         return replace(msg, id=cursor.lastrowid)
+
+    async def clear(self, channel_id: int) -> None:
+        """Delete the transcript; settings stay."""
+        await self._db.execute("DELETE FROM messages WHERE channel_id = ?", (channel_id,))
+        await self._db.commit()
+
+    async def size(self, channel_id: int) -> tuple[int, int]:
+        """Stored messages and characters of message text."""
+        async with self._db.execute(
+            "SELECT count(*), coalesce(sum(length(text)), 0) FROM messages WHERE channel_id = ?", (channel_id,)
+        ) as cursor:
+            return await cursor.fetchone()
+
+    async def budget(self, channel_id: int) -> int | None:
+        async with self._db.execute("SELECT budget FROM settings WHERE channel_id = ?", (channel_id,)) as cursor:
+            row = await cursor.fetchone()
+        return row[0] if row else None
+
+    async def set_budget(self, channel_id: int, budget: int) -> None:
+        await self._db.execute(
+            "INSERT INTO settings (channel_id, budget) VALUES (?, ?) ON CONFLICT (channel_id) DO UPDATE SET budget = excluded.budget",
+            (channel_id, budget),
+        )
+        await self._db.commit()
 
     async def update_attachments(self, message_id: int, attachments: tuple[Attachment, ...]) -> None:
         await self._db.execute("UPDATE messages SET attachments = ? WHERE id = ?", (_dump(attachments), message_id))

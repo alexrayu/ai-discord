@@ -2,7 +2,7 @@
 
 Discord group chat between server members, Claude (Anthropic) and Quill (GPT, OpenAI). One bot process decides who speaks and posts both AIs through a webhook. See `PLAN.md` for the full spec.
 
-Status: milestone 6. Each AI decides whether to reply or stay silent; order is random, @mentioned AIs go first and must answer, and at most `AI_TURN_BUDGET` AI messages follow a human one. A new human message stops the running round and starts a fresh one. Both see the images in the 3 newest messages that have any, and the content of text files (up to 1 MB, first 20,000 characters); PDFs are not supported yet. Owner commands (milestone 7) are not done yet.
+Status: milestone 7 (MVP complete). Each AI decides whether to reply or stay silent; order is random, @mentioned AIs go first and must answer, and at most `AI_TURN_BUDGET` AI messages follow a human one. A new human message stops the running round and starts a fresh one. Both see the images in the 3 newest messages that have any, and the content of text files (up to 1 MB, first 20,000 characters); PDFs are not supported yet.
 
 ## Discord setup
 
@@ -28,6 +28,17 @@ cp .env.example .env    # then fill in the values
 The bot exits at startup with a list of what is missing or invalid in `.env`.
 
 Tests: `.venv/bin/pytest`
+
+## Owner commands
+
+Only the owner (`OWNER_USER_ID`, or the server owner when empty) can run these; from anyone else they are ordinary chat. Commands and their answers never enter the transcript.
+
+- `!reset`: stop the running round and clear this channel's or thread's transcript.
+- `!reload`: reload the prompt files without a restart.
+- `!budget N`: max AI messages per human message in this channel or thread (1-20, kept across restarts).
+- `!status`: models, budget and transcript size.
+
+Any member can steer the AIs with what they write; treat their messages as untrusted input.
 
 ## Privacy
 

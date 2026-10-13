@@ -76,3 +76,19 @@ async def test_inlined_file_text_counts_toward_limit(store):
     file = Attachment("a.txt", "text/plain", "text", "u", "x" * 50)
     await store.append(TranscriptMessage(channel_id=1, speaker="human", text="f", display_name="W", attachments=(file,)))
     assert [m.text for m in await store.recent(1, 52)] == ["topic", "f"]
+
+
+async def test_clear_keeps_other_channels_and_settings(store):
+    await store.append(msg("a"))
+    await store.append(msg("b", channel=2))
+    await store.set_budget(1, 5)
+    await store.clear(1)
+    assert await store.recent(1, 1000) == [] and len(await store.recent(2, 1000)) == 1
+    assert await store.budget(1) == 5 and await store.size(1) == (0, 0)
+
+
+async def test_budget_upsert(store):
+    assert await store.budget(1) is None
+    await store.set_budget(1, 4)
+    await store.set_budget(1, 9)
+    assert await store.budget(1) == 9

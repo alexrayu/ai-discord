@@ -52,7 +52,7 @@ class Orchestrator:
         self._providers = providers
         self.prompts = prompts
         self._char_limit = char_limit
-        self._budget = budget
+        self.default_budget = budget
         # control: orders human messages (cancel, append, restart); never held while awaiting an AI.
         # transcript: serializes appends; the only lock a round takes, so cancelling one can't deadlock.
         self._control: defaultdict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
@@ -66,13 +66,27 @@ class Orchestrator:
     async def run(self, channel: discord.abc.Messageable, msg: TranscriptMessage) -> asyncio.Task:
         """Stop the channel's running round, append the human message and start a new round."""
         async with self._control[msg.channel_id]:
-            if (running := self._rounds.get(msg.channel_id)) and not running.done():
-                running.cancel()
-                await asyncio.wait({running})
+            await self._cancel(msg.channel_id)
             await self._append(msg)
             task = asyncio.create_task(self._rounds_until_quiet(channel))
             self._rounds[msg.channel_id] = task
             return task
+
+    async def reset(self, channel_id: int) -> None:
+        """Stop the running round and clear the channel's transcript."""
+        async with self._control[channel_id]:
+            await self._cancel(channel_id)
+            async with self._transcript[channel_id]:
+                await self._store.clear(channel_id)
+
+    async def _cancel(self, channel_id: int) -> None:
+        """Cancel the running round and wait until it has finished cancelling. Caller holds the control lock."""
+        if (running := self._rounds.get(channel_id)) and not running.done():
+            running.cancel()
+            await asyncio.wait({running})
+
+    async def budget(self, channel_id: int) -> int:
+        return await self._store.budget(channel_id) or self.default_budget
 
     async def _append(self, msg: TranscriptMessage) -> TranscriptMessage:
         async with self._transcript[msg.channel_id]:
@@ -94,6 +108,7 @@ class Orchestrator:
         transcript = await self._store.recent(channel.id, self._char_limit)
         # AIs that were addressed and haven't answered yet; they go first and may not PASS.
         owed = mentions(transcript[-1], transcript) & AI_NAMES.keys()
+        budget = await self.budget(channel.id)
         turns = 0
         failed: set[str] = set()  # one error notice per AI and run, not one per round
         while True:
@@ -110,7 +125,7 @@ class Orchestrator:
                     continue
                 spoke = True
                 turns += 1
-                if turns >= self._budget:
+                if turns >= budget:
                     return
                 owed |= mentions(reply, transcript) & AI_NAMES.keys()
             if not spoke:
