@@ -66,6 +66,7 @@ def test_pass(text):
         ("Fine.\n[Quill]: I agree\n[Walrus]: ok", "Fine."),
         ("Fine.\n[walrus]: ok", "Fine."),
         ("See [docs]: link", "See [docs]: link"),
+        ("Fine—build it. Or — not.", "Fine - build it. Or - not."),
     ],
 )
 def test_reply_text(text, expected):
@@ -104,5 +105,5 @@ def test_images_placeholders_and_merging():
     assert content == [
         {"type": "text", "text": "[Walrus]: hi\n\n[Walrus]: look"},
         {"img": "B64"},
-        {"type": "text", "text": "[image: old.png]\n[image: x.heic — unsupported format]\n[file: note.txt — not supported yet]"},
+        {"type": "text", "text": "[image: old.png]\n[image: x.heic - unsupported format]\n[file: note.txt - not supported yet]"},
     ]

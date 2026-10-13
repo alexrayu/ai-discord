@@ -43,8 +43,8 @@ def attachment_note(att: Attachment, note: str | None = None) -> str:
     """Text stand-in for an attachment that is not sent as an image."""
     name = re.sub(r"[\[\]\r\n]", "", att.filename)
     if att.kind != "image":
-        return f"[file: {name} — not supported yet]"
-    return f"[image: {name} — {note}]" if note else f"[image: {name}]"
+        return f"[file: {name} - not supported yet]"
+    return f"[image: {name} - {note}]" if note else f"[image: {name}]"
 
 
 def to_messages(
@@ -116,4 +116,6 @@ def finalize(reply: Reply, persona: str, transcript: list[TranscriptMessage]) ->
 
     if text.strip(PASS_STRIP).upper() in ("", "PASS"):
         return None
+    # Plain hyphens instead of em dashes; line breaks around them stay.
+    text = re.sub(r"[ \t]*—[ \t]*", " - ", text)
     return text + " […]" if reply.stop == "truncated" else text
