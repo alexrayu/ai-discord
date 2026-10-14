@@ -1,16 +1,11 @@
-"""Provider interface and the transcript conversion shared by all providers."""
+"""Provider interface and the request building shared by all providers."""
 
 import re
-import string
+from collections.abc import Callable
 from dataclasses import dataclass
-from collections.abc import Callable, Mapping
 from typing import Protocol
 
-from transcript import AI_NAMES, Attachment, ImageData, TranscriptMessage
-
-# Humans may not use an AI name, a model family name or "System".
-RESERVED_NAMES = {name.lower() for name in AI_NAMES.values()} | set(AI_NAMES) | {"system"}
-PASS_STRIP = string.whitespace + string.punctuation + "“”‘’«»"
+from models import ImageData, Part, PdfData
 
 
 class ProviderError(Exception):
@@ -30,119 +25,38 @@ class Reply:
 class Provider(Protocol):
     name: str
 
-    async def respond(
-        self,
-        system: str,
-        transcript: list[TranscriptMessage],
-        images: Mapping[tuple[int, int], ImageData | str],
-        hint: str,
-    ) -> Reply: ...
-
-
-def label(msg: TranscriptMessage) -> str:
-    """Speaker name as the AIs see it. Humans can't pose as an AI or the system."""
-    if msg.speaker in AI_NAMES:
-        return AI_NAMES[msg.speaker]
-    name = re.sub(r"[\[\]\r\n]", "", msg.display_name).strip() or "Someone"
-    return f"{name} (human)" if name.lower() in RESERVED_NAMES else name
-
-
-def attachment_text(att: Attachment, note: str | None = None) -> str:
-    """Inlined text file, or a placeholder for anything not sent as an image."""
-    name = re.sub(r"[\[\]\r\n]", "", att.filename)
-    if att.kind == "image":
-        return f"[image: {name} - {note}]" if note else f"[image: {name}]"
-    if att.kind == "text":
-        return f"--- file: {name} ---\n{att.text}" if att.text is not None else f"[file: {name} - too large or unreadable]"
-    if att.kind == "pdf":
-        return f"[pdf: {name} - not supported yet]"
-    return f"[file: {name} - not supported yet]"
+    async def respond(self, system: str, material: list[Part], turns: list[tuple[str, str]]) -> Reply: ...
 
 
 def to_messages(
-    transcript: list[TranscriptMessage],
-    persona: str,
-    images: Mapping[tuple[int, int], ImageData | str] | None = None,
-    image_block: Callable[[ImageData], dict] | None = None,
+    material: list[Part],
+    turns: list[tuple[str, str]],
+    block: Callable[[ImageData | PdfData], dict],
+    cache: dict | None = None,
 ) -> list[dict]:
-    """Own messages become assistant turns; everyone else's are labeled and merged into user turns.
+    """The material opens the first user message, followed by the (role, text) turns.
 
-    Each message keeps its own content blocks and content is always a block list, so a new message only
-    appends blocks: earlier blocks stay byte-identical and the cached prompt prefix keeps matching.
-
-    images: keyed by (message id, attachment index); ImageData goes out via image_block, a str is a
-    note for the placeholder. Images not in the map become plain placeholders.
+    cache marks the last material block, so every step of a review shares the cached material prefix.
     """
-    images = images or {}
-    turns: list[tuple[str, list]] = []
-    for msg in transcript:
-        if msg.speaker == persona:
-            role, parts = "assistant", [msg.text]
+    content = [{"type": "text", "text": p} if isinstance(p, str) else block(p) for p in material]
+    if cache:
+        content[-1] = {**content[-1], **cache}
+    messages = [{"role": "user", "content": content}]
+    for role, text in turns:
+        part = {"type": "text", "text": text}
+        if messages[-1]["role"] == role:
+            messages[-1]["content"].append(part)
         else:
-            role, parts = "user", [f"[{label(msg)}]: {msg.text}"]
-            for i, att in enumerate(msg.attachments):
-                image = images.get((msg.id, i))
-                if isinstance(image, ImageData):
-                    parts.append(image_block(image))
-                else:
-                    _add(parts, attachment_text(att, image), "\n")
-        if turns and turns[-1][0] == role:
-            turns[-1][1].extend(parts)
-        else:
-            turns.append((role, parts))
-    # The API requires a user turn first.
-    while turns and turns[0][0] == "assistant":
-        turns.pop(0)
-    return [{"role": role, "content": _content(parts)} for role, parts in turns]
+            messages.append({"role": role, "content": [part]})
+    return messages
 
 
-def cache_breakpoint(messages: list[dict], marker: dict) -> None:
-    """Mark the end of the transcript as cache breakpoint; the per-turn hint added after it stays uncached."""
-    blocks = messages[-1]["content"]
-    blocks[-1] = {**blocks[-1], **marker}
-
-
-def add_hint(messages: list[dict], hint: str) -> None:
-    """Turn hint as the final user content; never stored in the transcript."""
-    block = {"type": "text", "text": f"[System]: {hint}"}
-    if messages and messages[-1]["role"] == "user":
-        messages[-1]["content"] = [*messages[-1]["content"], block]
-    else:
-        messages.append({"role": "user", "content": [block]})
-
-
-def _add(parts: list, part: str | dict, sep: str) -> None:
-    """Append, joining text onto a trailing text part."""
-    if isinstance(part, str) and parts and isinstance(parts[-1], str):
-        parts[-1] += sep + part
-    else:
-        parts.append(part)
-
-
-def _content(parts: list) -> list[dict]:
-    return [{"type": "text", "text": p} if isinstance(p, str) else p for p in parts]
-
-
-def finalize(reply: Reply, persona: str, transcript: list[TranscriptMessage]) -> str | None:
-    """Text to post, or None for PASS."""
+def finalize(reply: Reply) -> str | None:
+    """Text to post, or None for a refusal or an empty reply."""
     if reply.stop == "refusal":
         return None
-    own = re.escape(AI_NAMES[persona])
-    text = re.sub(rf"^\s*\[?{own}\]?\s*:\s*", "", reply.text, flags=re.IGNORECASE)
-
-    # Cut where the model starts writing as another participant.
-    others = {label(m).lower() for m in transcript if m.speaker != persona}
-    others |= {name.lower() for key, name in AI_NAMES.items() if key != persona}
-    lines = text.split("\n")
-    for i, line in enumerate(lines):
-        match = re.match(r"\s*\[([^\]]+)\]\s*:", line)
-        if match and match.group(1).strip().lower() in others:
-            lines = lines[:i]
-            break
-    text = "\n".join(lines).strip()
-
-    if text.strip(PASS_STRIP).upper() in ("", "PASS"):
-        return None
     # Plain hyphens instead of em dashes; line breaks around them stay.
-    text = re.sub(r"[ \t]*—[ \t]*", " - ", text)
+    text = re.sub(r"[ \t]*—[ \t]*", " - ", reply.text).strip()
+    if not text:
+        return None
     return text + " […]" if reply.stop == "truncated" else text

@@ -26,10 +26,9 @@ class Config:
     gpt_model: str
     gpt_reasoning_effort: str | None
     max_reply_tokens: int
-    transcript_char_limit: int
     image_max_edge: int
-    user_rounds_per_hour: int
-    ai_turn_budget: int
+    user_reviews_per_hour: int
+    followups_per_hour: int
     debug: bool
 
 
@@ -83,11 +82,10 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
         openai_api_key=required("OPENAI_API_KEY"),
         gpt_model=required("GPT_MODEL"),
         gpt_reasoning_effort=env.get("GPT_REASONING_EFFORT", "").strip() or None,
-        max_reply_tokens=positive_int("MAX_REPLY_TOKENS", 4000),
-        transcript_char_limit=positive_int("TRANSCRIPT_CHAR_LIMIT", 60000),
-        image_max_edge=positive_int("IMAGE_MAX_EDGE", 1080),
-        user_rounds_per_hour=positive_int("USER_ROUNDS_PER_HOUR", 20),
-        ai_turn_budget=positive_int("AI_TURN_BUDGET", 3),
+        max_reply_tokens=positive_int("MAX_REPLY_TOKENS", 16000),
+        image_max_edge=positive_int("IMAGE_MAX_EDGE", 1568),
+        user_reviews_per_hour=positive_int("USER_REVIEWS_PER_HOUR", 5),
+        followups_per_hour=positive_int("FOLLOWUPS_PER_HOUR", 30),
         debug=env.get("DEBUG", "false").strip().lower() in ("1", "true", "yes"),
     )
 

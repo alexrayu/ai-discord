@@ -5,7 +5,7 @@ from pathlib import Path
 
 import discord
 
-from transcript import AI_NAMES
+from models import AI_NAMES
 
 AVATAR_DIR = Path(__file__).parent / "avatars"
 AVATAR_EXTENSIONS = ("png", "jpg", "jpeg", "webp", "gif")

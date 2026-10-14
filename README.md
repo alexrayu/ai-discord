@@ -1,8 +1,8 @@
 # ai-discord
 
-Discord group chat between server members, Claude (Anthropic) and Quill (GPT, OpenAI). One bot process decides who speaks and posts both AIs through a webhook. See `PLAN.md` for the full spec.
+Discord bot for editorial reviews of manga chapters by two AIs: Claude (Anthropic) and Quill (GPT, OpenAI). See `PLAN.md` for the full spec.
 
-Status: milestone 7 (MVP complete). Each AI decides whether to reply or stay silent; order is random, @mentioned AIs go first and must answer, and at most `AI_TURN_BUDGET` AI messages follow a human one. A new human message stops the running round and starts a fresh one. Both see the images in the 3 newest messages that have any, and the content of text files (up to 1 MB, first 20,000 characters); PDFs are not supported yet.
+A member posts pages (images), a PDF or a script file in a review channel; the bot answers with a **Request review** button. A click opens a thread on the upload, and the AIs post three steps there through webhooks: Claude's analysis, Quill's critique of it (checking every page citation), and Claude's final review. The text of the upload message, if any, counts as the author's note on intent; only the final step sees it, so the first two read cold. Images are numbered as pages in filename order (`p2` before `p10`). The AIs don't chat with each other: other messages in the channel are ignored, and in a review thread each member message gets one follow-up answer (see Reviews).
 
 ## Discord setup
 
@@ -10,7 +10,7 @@ Status: milestone 7 (MVP complete). Each AI decides whether to reply or stay sil
 2. Reset and copy the bot token.
 3. Under **Privileged Gateway Intents**, enable **Message Content Intent**.
 4. Under **OAuth2 → URL Generator**, select scope `bot` and these permissions:
-   View Channels, Send Messages, Send Messages in Threads, Read Message History, Manage Webhooks.
+   View Channels, Send Messages, Send Messages in Threads, Create Public Threads, Read Message History, Manage Webhooks.
    Open the generated URL and invite the bot to your server.
 5. In Discord, enable **Settings → Advanced → Developer Mode**. Then right-click each channel → Copy Channel ID (or Copy Link: the last number in the URL is the channel ID).
 
@@ -19,6 +19,7 @@ Status: milestone 7 (MVP complete). Each AI decides whether to reply or stay sil
 ## Install and run
 
 ```
+# PDF rendering (WeasyPrint) needs Pango; on Debian/Ubuntu: apt install libpango-1.0-0 libpangoft2-1.0-0 fonts-noto-cjk
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 cp .env.example .env    # then fill in the values
@@ -31,21 +32,30 @@ Tests: `.venv/bin/pytest`
 
 ## Owner commands
 
-Only the owner (`OWNER_USER_ID`, or the server owner when empty) can run these; from anyone else they are ordinary chat. Commands and their answers never enter the transcript.
+Only the owner (`OWNER_USER_ID`, or the server owner when empty) can run these.
 
-- `!reset`: stop the running round and clear this channel's or thread's transcript.
-- `!reload`: reload the prompt files without a restart.
-- `!budget N`: max AI messages per human message in this channel or thread (1-20, kept across restarts).
-- `!status`: models, budget and transcript size.
+- `!reload`: reload the prompt files without a restart. A running review keeps the prompts it started with.
+- `!status`: models, efforts and the hourly review limit.
 
-Any member can steer the AIs with what they write; treat their messages as untrusted input.
+## Reviews
+
+- Each member except the owner can request `USER_REVIEWS_PER_HOUR` reviews per hour.
+- Input: up to 10 images per message (Discord's limit), PDFs up to 100 MB, text files up to 1 MB (first 100,000 characters). Other files are skipped; an upload where every file is over its limit gets the reason instead of a button.
+- PDFs up to 20 MB in total go to the models as PDFs. Larger ones are rendered to page images in memory, like uploaded pages. PDFs over 100 pages are always rendered (Claude takes at most 100 PDF pages). A review takes at most 100 pages; image quality and size step down so a request stays under the API size limit.
+- For an earlier upload (posted while the bot was offline, a lost button, or a second opinion): right-click the message → **Apps** → **Request review**. Same checks and limit; another run on the same upload posts into its existing thread, and the PDF takes the newest final review. If the menu entry is missing, re-invite the bot with the `applications.commands` scope as well.
+- When the review is done, the button message links to the thread and offers **Download PDF**: the final review as an A4 PDF, sent only to whoever clicks. It is rebuilt from the thread on every click, so it works after restarts; deleting the thread makes it unavailable.
+- Follow-up questions: after the review, any member's message in the review thread gets an answer from Claude, or from Quill when it contains `@Quill`. The AI sees the three review steps and the thread's earlier questions and answers as text; pages the question names (`p. 4`, `pp. 3-5`, `page 12`, at most 5) are attached as images. Every member message there counts as a question, so members discussing among themselves trigger answers too. Cap: `FOLLOWUPS_PER_HOUR` per member (default 30), owner exempt. Cost: about 1 cent per text-only question, plus about 1 cent per cited page.
+- If a step fails, the thread shows a notice and the button comes back; a retry posts into the same thread.
+- If the bot restarts during a review, that review is lost and its button stays disabled; post the files again.
+- Cost: every page goes to both models, and Claude reads the material twice (the second time mostly from cache). A long PDF can mean 100k+ input tokens per review.
+- The review prompts live in `prompts/`: `review_rules.md` (shared criteria and rules), `claude.md` / `gpt.md` (personas), `analysis.md`, `critique.md`, `final.md` (one per step).
 
 ## Privacy
 
-- Messages in the allowed channels, from every member, are sent to Anthropic and OpenAI to generate replies, including images and text-file contents. Both keep API data for a limited time for abuse monitoring and don't train on it by default.
-- Transcripts, including the text of attached text files, are stored locally in `transcripts.sqlite`. Images are only kept in memory.
+- Uploads in the review channels, from every member who presses the button, are sent to Anthropic and OpenAI, together with the upload message text. Both keep API data for a limited time for abuse monitoring and don't train on it by default.
+- Nothing is stored locally: files are downloaded into memory per review and dropped afterwards. Review PDFs are rendered in memory without fetching any URL the review text may contain.
 - No message content is logged, also not with `DEBUG=true`.
-- Each member except the owner can start `USER_ROUNDS_PER_HOUR` replies per hour.
+- Text inside the uploaded material is untrusted input for the AIs.
 
 ## Avatars
 

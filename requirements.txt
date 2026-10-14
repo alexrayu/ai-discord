@@ -1,8 +1,10 @@
-aiosqlite==0.22.1
 anthropic==1.13.0
 discord.py==2.7.1
+markdown==3.11.1
 openai==3.29.0
 pillow==12.3.0
+pypdfium2==5.14.0
 pytest==9.1.1
 pytest-asyncio==1.4.0
 python-dotenv==1.2.4
+weasyprint==70.0

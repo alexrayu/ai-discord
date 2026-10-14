@@ -1,127 +1,39 @@
 import pytest
 
-from providers.base import Reply, finalize, label, to_messages
-from transcript import TranscriptMessage
+from models import ImageData
+from providers.base import Reply, finalize, to_messages
+
+MARK = {"cache": 1}
 
 
-def human(text, name="Walrus"):
-    return TranscriptMessage(channel_id=1, speaker="human", text=text, display_name=name, author_id=5)
+def block(item):
+    return {"type": "img", "data": item.data}
 
 
-def ai(persona, text):
-    return TranscriptMessage(channel_id=1, speaker=persona, text=text)
-
-
-# Labels
-
-@pytest.mark.parametrize(
-    "name, expected",
-    [("Walrus", "Walrus"), ("claude", "claude (human)"), ("GPT", "GPT (human)"), ("quill", "quill (human)"), ("System", "System (human)"),
-     ("[Claude]", "Claude (human)"), ("a]b\n[c", "abc"), ("", "Someone")],
-)
-def test_human_label(name, expected):
-    assert label(human("x", name)) == expected
-
-
-# Conversion
-
-def test_roles_labels_and_merging_from_claude_view():
-    transcript = [human("hi"), ai("gpt", "yo"), ai("claude", "hey"), human("q", "Anna")]
-    assert to_messages(transcript, "claude") == [
-        {"role": "user", "content": [{"type": "text", "text": "[Walrus]: hi"}, {"type": "text", "text": "[Quill]: yo"}]},
-        {"role": "assistant", "content": [{"type": "text", "text": "hey"}]},
-        {"role": "user", "content": [{"type": "text", "text": "[Anna]: q"}]},
+def test_material_first_cache_mark_on_last_block_turns_merged():
+    material = ["Page 1:", ImageData("image/png", "B64")]
+    turns = [("user", "analyze"), ("assistant", "notes"), ("user", "critique"), ("user", "final")]
+    assert to_messages(material, turns, block, MARK) == [
+        {"role": "user", "content": [
+            {"type": "text", "text": "Page 1:"}, {"type": "img", "data": "B64", "cache": 1}, {"type": "text", "text": "analyze"},
+        ]},
+        {"role": "assistant", "content": [{"type": "text", "text": "notes"}]},
+        {"role": "user", "content": [{"type": "text", "text": "critique"}, {"type": "text", "text": "final"}]},
     ]
 
 
-def test_same_transcript_from_gpt_view():
-    transcript = [human("hi"), ai("gpt", "yo"), ai("claude", "hey")]
-    assert to_messages(transcript, "gpt") == [
-        {"role": "user", "content": [{"type": "text", "text": "[Walrus]: hi"}]},
-        {"role": "assistant", "content": [{"type": "text", "text": "yo"}]},
-        {"role": "user", "content": [{"type": "text", "text": "[Claude]: hey"}]},
-    ]
-
-
-def test_leading_assistant_dropped():
-    assert to_messages([ai("claude", "a"), human("b")], "claude") == [{"role": "user", "content": [{"type": "text", "text": "[Walrus]: b"}]}]
-
-
-# Reply handling
-
-TRANSCRIPT = [human("hi"), ai("gpt", "yo")]
-
-
-@pytest.mark.parametrize("text", ["PASS", "pass", ' "PASS". ', "(PASS)", "[Claude]: PASS", "Claude: pass", "", "  \n"])
-def test_pass(text):
-    assert finalize(Reply(text, "end"), "claude", TRANSCRIPT) is None
+def test_no_cache_mark():
+    assert to_messages(["x"], [], block) == [{"role": "user", "content": [{"type": "text", "text": "x"}]}]
 
 
 @pytest.mark.parametrize(
-    "text, expected",
+    "reply, expected",
     [
-        ("PASS on that, but no.", "PASS on that, but no."),
-        ("[Claude]: Nope.", "Nope."),
-        ("Quill: you're wrong", "Quill: you're wrong"),  # only the own name is stripped
-        ("Fine.\n[Quill]: I agree\n[Walrus]: ok", "Fine."),
-        ("Fine.\n[walrus]: ok", "Fine."),
-        ("See [docs]: link", "See [docs]: link"),
-        ("Fine—build it. Or — not.", "Fine - build it. Or - not."),
+        (Reply("A — B", "end"), "A - B"),
+        (Reply("  text \n", "truncated"), "text […]"),
+        (Reply("text", "refusal"), None),
+        (Reply(" \n", "end"), None),
     ],
 )
-def test_reply_text(text, expected):
-    assert finalize(Reply(text, "end"), "claude", TRANSCRIPT) == expected
-
-
-def test_impersonation_only_reply_is_pass():
-    assert finalize(Reply("[Quill]: PASS too", "end"), "claude", TRANSCRIPT) is None
-
-
-def test_truncated_reply_marked_not_pass():
-    assert finalize(Reply("Long answer", "truncated"), "claude", TRANSCRIPT) == "Long answer […]"
-    assert finalize(Reply("", "truncated"), "claude", TRANSCRIPT) is None
-
-
-def test_refusal_is_pass():
-    assert finalize(Reply("Sorry", "refusal"), "claude", TRANSCRIPT) is None
-
-
-def test_prompts_use_ai_names():
-    from prompts import load_prompts
-    prompts = load_prompts()
-    assert "{claude}" not in prompts["claude"] and "{gpt}" not in prompts["gpt"]
-    assert "@Quill" in prompts["claude"] and "your name is Quill" in prompts["gpt"]
-
-
-# Attachments
-
-def test_images_placeholders_and_merging():
-    from transcript import Attachment, ImageData
-    atts = (Attachment("p1.png", "image/png", "image", "u"), Attachment("old.png", "image/png", "image", "u"),
-            Attachment("x.heic", "image/heic", "image", "u"), Attachment("n[o]te.txt", "text/plain", "other", "u"))
-    msg = TranscriptMessage(channel_id=1, speaker="human", text="look", display_name="Walrus", attachments=atts, id=7)
-    images = {(7, 0): ImageData("image/png", "B64"), (7, 2): "unsupported format"}
-    content = to_messages([human("hi"), msg], "claude", images, lambda i: {"img": i.data})[0]["content"]
-    assert content == [
-        {"type": "text", "text": "[Walrus]: hi"},
-        {"type": "text", "text": "[Walrus]: look"},
-        {"img": "B64"},
-        {"type": "text", "text": "[image: old.png]\n[image: x.heic - unsupported format]\n[file: note.txt - not supported yet]"},
-    ]
-
-
-def test_hint_after_own_message_is_new_user_turn():
-    from providers.base import add_hint
-    messages = to_messages([human("hi"), ai("claude", "yo")], "claude")
-    add_hint(messages, "Your turn.")
-    assert messages[-1] == {"role": "user", "content": [{"type": "text", "text": "[System]: Your turn."}]}
-
-
-def test_text_files_inlined_and_placeholders():
-    from transcript import Attachment
-    atts = (Attachment("a.py", "text/x-python", "text", "u", "print(1)"), Attachment("big.log", "text/plain", "text", "u"),
-            Attachment("doc.pdf", "application/pdf", "pdf", "u"))
-    msg = TranscriptMessage(channel_id=1, speaker="human", text="see", display_name="Walrus", attachments=atts, id=1)
-    assert to_messages([msg], "claude")[0]["content"][0]["text"] == (
-        "[Walrus]: see\n--- file: a.py ---\nprint(1)\n[file: big.log - too large or unreadable]\n[pdf: doc.pdf - not supported yet]"
-    )
+def test_finalize(reply, expected):
+    assert finalize(reply) == expected

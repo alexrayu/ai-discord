@@ -9,14 +9,15 @@ from config import load_config
 from providers.base import ProviderError
 from providers.claude import ClaudeProvider
 from providers.gpt import GPTProvider
-from transcript import Attachment, ImageData, TranscriptMessage
+from models import ImageData, PdfData
 
 ENV = {
     "DISCORD_TOKEN": "t", "ALLOWED_CHANNEL_IDS": "1", "ANTHROPIC_API_KEY": "a", "CLAUDE_MODEL": "claude-m",
     "OPENAI_API_KEY": "o", "GPT_MODEL": "gpt-m",
 }
 CONFIG = load_config(ENV)
-TRANSCRIPT = [TranscriptMessage(channel_id=1, speaker="human", text="hi", display_name="Walrus")]
+MATERIAL = ["Page 1:"]
+TURNS = [("user", "TASK")]
 CLAUDE_USAGE = SimpleNamespace(input_tokens=1, cache_read_input_tokens=0, cache_creation_input_tokens=0, output_tokens=1)
 GPT_USAGE = SimpleNamespace(prompt_tokens=1, completion_tokens=1,
                             prompt_tokens_details=SimpleNamespace(cached_tokens=0, cache_write_tokens=0))
@@ -43,7 +44,7 @@ def claude_with(response=None, error=None):
 async def test_claude_stop_mapping_and_text(stop_reason, stop):
     blocks = [SimpleNamespace(type="thinking"), SimpleNamespace(type="text", text="Hi "), SimpleNamespace(type="text", text="there")]
     provider, client = claude_with(SimpleNamespace(content=blocks, stop_reason=stop_reason, usage=CLAUDE_USAGE))
-    reply = await provider.respond("SYS", TRANSCRIPT, {}, "HINT")
+    reply = await provider.respond("SYS", MATERIAL, TURNS)
     assert (reply.text, reply.stop) == ("Hi there", stop)
     kwargs = client.messages.create.call_args.kwargs
     assert kwargs["system"] == [{"type": "text", "text": "SYS", "cache_control": {"type": "ephemeral"}}]
@@ -56,7 +57,7 @@ async def test_claude_error_wrapped():
     error = anthropic.APIConnectionError(request=MagicMock())
     provider, _ = claude_with(error=error)
     with pytest.raises(ProviderError):
-        await provider.respond("SYS", TRANSCRIPT, {}, "HINT")
+        await provider.respond("SYS", MATERIAL, TURNS)
 
 
 # Quill
@@ -72,79 +73,59 @@ def gpt_with(config=CONFIG, content="Yo", finish_reason="stop", refusal=None, er
 @pytest.mark.parametrize("finish_reason, stop", [("stop", "end"), ("length", "truncated"), ("content_filter", "refusal")])
 async def test_gpt_stop_mapping(finish_reason, stop):
     provider, client = gpt_with(finish_reason=finish_reason)
-    reply = await provider.respond("SYS", TRANSCRIPT, {}, "HINT")
+    reply = await provider.respond("SYS", MATERIAL, TURNS)
     assert reply.stop == stop
     kwargs = client.chat.completions.create.call_args.kwargs
     assert kwargs["messages"][0] == {"role": "system", "content": "SYS"}
     assert kwargs["messages"][1] == {"role": "user", "content": [
-        {"type": "text", "text": "[Walrus]: hi", "prompt_cache_breakpoint": {"mode": "explicit"}},
-        {"type": "text", "text": "[System]: HINT"},
+        {"type": "text", "text": "Page 1:"}, {"type": "text", "text": "TASK"},
     ]}
-    assert kwargs["prompt_cache_key"] == "gpt-1"
-    assert kwargs["max_completion_tokens"] == 4000
+    assert kwargs["max_completion_tokens"] == 16000
     assert "reasoning_effort" not in kwargs
 
 
 async def test_gpt_refusal_and_empty_content():
     provider, _ = gpt_with(content=None, refusal="I can't help with that.")
-    assert (await provider.respond("SYS", TRANSCRIPT, {}, "HINT")).stop == "refusal"
+    assert (await provider.respond("SYS", MATERIAL, TURNS)).stop == "refusal"
     provider, _ = gpt_with(content=None)
-    assert (await provider.respond("SYS", TRANSCRIPT, {}, "HINT")).text == ""
+    assert (await provider.respond("SYS", MATERIAL, TURNS)).text == ""
 
 
 async def test_gpt_reasoning_effort_passed_when_set():
     provider, client = gpt_with(config=load_config({**ENV, "GPT_REASONING_EFFORT": "low"}))
-    await provider.respond("SYS", TRANSCRIPT, {}, "HINT")
+    await provider.respond("SYS", MATERIAL, TURNS)
     assert client.chat.completions.create.call_args.kwargs["reasoning_effort"] == "low"
 
 
 async def test_gpt_error_wrapped():
     provider, _ = gpt_with(error=openai.APIConnectionError(request=MagicMock()))
     with pytest.raises(ProviderError):
-        await provider.respond("SYS", TRANSCRIPT, {}, "HINT")
+        await provider.respond("SYS", MATERIAL, TURNS)
 
 
-# Image blocks in each provider's native format
+# Image and PDF blocks in each provider's native format
 
-IMAGE_TRANSCRIPT = [TranscriptMessage(channel_id=1, speaker="human", text="see", display_name="Walrus", id=3,
-                                      attachments=(Attachment("p.png", "image/png", "image", "u"),))]
-IMAGES = {(3, 0): ImageData("image/png", "B64")}
+BLOBS = [ImageData("image/png", "B64"), PdfData("ch.pdf", "PDF64")]
 
 
-async def test_claude_image_block():
+async def test_claude_blocks_and_cache_breakpoint():
     provider, client = claude_with(SimpleNamespace(content=[], stop_reason="end_turn", usage=CLAUDE_USAGE))
-    await provider.respond("SYS", IMAGE_TRANSCRIPT, IMAGES, "HINT")
-    content = client.messages.create.call_args.kwargs["messages"][0]["content"]
-    assert content[1] == {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "B64"},
-                          "cache_control": {"type": "ephemeral"}}
-
-
-async def test_gpt_image_block():
-    provider, client = gpt_with()
-    await provider.respond("SYS", IMAGE_TRANSCRIPT, IMAGES, "HINT")
-    content = client.chat.completions.create.call_args.kwargs["messages"][1]["content"]
-    assert content[1] == {"type": "image_url", "image_url": {"url": "data:image/png;base64,B64"},
-                          "prompt_cache_breakpoint": {"mode": "explicit"}}
-
-
-# Turn hint and cache breakpoint
-
-async def test_claude_cache_breakpoint_before_hint():
-    provider, client = claude_with(SimpleNamespace(content=[], stop_reason="end_turn", usage=CLAUDE_USAGE))
-    await provider.respond("SYS", TRANSCRIPT, {}, "Your turn.")
-    kwargs = client.messages.create.call_args.kwargs
-    assert "cache_control" not in kwargs
-    assert kwargs["messages"] == [{"role": "user", "content": [
-        {"type": "text", "text": "[Walrus]: hi", "cache_control": {"type": "ephemeral"}},
-        {"type": "text", "text": "[System]: Your turn."},
+    await provider.respond("SYS", BLOBS, TURNS)
+    assert client.messages.create.call_args.kwargs["messages"] == [{"role": "user", "content": [
+        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "B64"}},
+        {"type": "document", "title": "ch.pdf", "source": {"type": "base64", "media_type": "application/pdf", "data": "PDF64"},
+         "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": "TASK"},
     ]}]
 
 
-async def test_gpt_hint_last():
+async def test_gpt_blocks():
     provider, client = gpt_with()
-    await provider.respond("SYS", TRANSCRIPT, {}, "Your turn.")
-    assert client.chat.completions.create.call_args.kwargs["messages"][-1]["content"][-1] == {
-        "type": "text", "text": "[System]: Your turn."}
+    await provider.respond("SYS", BLOBS, TURNS)
+    assert client.chat.completions.create.call_args.kwargs["messages"][1]["content"][:2] == [
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,B64"}},
+        {"type": "file", "file": {"filename": "ch.pdf", "file_data": "data:application/pdf;base64,PDF64"}},
+    ]
 
 
 # Out of credits
@@ -164,7 +145,7 @@ def _response(status):
 async def test_claude_out_of_credits(error, expected):
     provider, _ = claude_with(error=anthropic.BadRequestError("err", response=_response(400), body={"type": "error", "error": error}))
     with pytest.raises(ProviderError) as e:
-        await provider.respond("SYS", TRANSCRIPT, {}, "HINT")
+        await provider.respond("SYS", MATERIAL, TURNS)
     assert e.value.out_of_credits is expected
 
 
@@ -172,5 +153,5 @@ async def test_claude_out_of_credits(error, expected):
 async def test_gpt_out_of_credits(code, expected):
     provider, _ = gpt_with(error=openai.RateLimitError("err", response=_response(429), body={"code": code}))
     with pytest.raises(ProviderError) as e:
-        await provider.respond("SYS", TRANSCRIPT, {}, "HINT")
+        await provider.respond("SYS", MATERIAL, TURNS)
     assert e.value.out_of_credits is expected
