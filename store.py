@@ -32,6 +32,8 @@ COLUMNS = "id, channel_id, speaker, author_id, display_name, text, timestamp, di
 class Store:
     def __init__(self, db: aiosqlite.Connection):
         self._db = db
+        # First message id of each channel's transcript window; lost on restart, which costs one cache miss.
+        self._window_starts: dict[int, int] = {}
 
     @classmethod
     async def open(cls, path: Path | str) -> "Store":
@@ -86,19 +88,31 @@ class Store:
         await self._db.commit()
 
     async def recent(self, channel_id: int, char_limit: int) -> list[TranscriptMessage]:
-        """Newest messages within char_limit (at least one), plus the first human message as topic anchor."""
+        """Messages from the window start on, plus the first human message as topic anchor.
+
+        The window start only moves when the window outgrows char_limit, and then cuts back to
+        char_limit / 2 (at least one message): the transcript prefix stays byte-stable between
+        cuts, so provider prompt caches keep hitting.
+        """
+        start = self._window_starts.get(channel_id, 0)
         messages: list[TranscriptMessage] = []
-        total = 0
+        sizes: list[int] = []
+        overflow = False
         # Streams newest-first and stops early, so long transcripts are never fully loaded.
         async with self._db.execute(
-            f"SELECT {COLUMNS} FROM messages WHERE channel_id = ? ORDER BY id DESC", (channel_id,)
+            f"SELECT {COLUMNS} FROM messages WHERE channel_id = ? AND id >= ? ORDER BY id DESC", (channel_id, start)
         ) as cursor:
             async for row in cursor:
                 msg = _row(row)
-                total += len(msg.text) + sum(len(a.text or "") for a in msg.attachments)
-                if messages and total > char_limit:
+                sizes.append((sizes[-1] if sizes else 0) + len(msg.text) + sum(len(a.text or "") for a in msg.attachments))
+                if messages and sizes[-1] > char_limit:
+                    overflow = True
                     break
                 messages.append(msg)
+        if overflow:
+            keep = max(1, sum(size <= char_limit // 2 for size in sizes))
+            messages = messages[:keep]
+            self._window_starts[channel_id] = messages[-1].id
         messages.reverse()
 
         async with self._db.execute(

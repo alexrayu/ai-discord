@@ -72,7 +72,7 @@ USER_ROUNDS_PER_HOUR=20   # per-user cap on rounds a member can start
 MAX_REPLY_TOKENS=4000     # hard ceiling incl. reasoning tokens; brevity is enforced by the prompt
 TRANSCRIPT_CHAR_LIMIT=60000
 CLAUDE_EFFORT=low         # low | medium | high
-IMAGE_MAX_EDGE=1568       # long edge in px after downscaling
+IMAGE_MAX_EDGE=1080       # images are downscaled to fit inside N x N px
 DEBUG=false
 ```
 
@@ -170,13 +170,13 @@ Transcript conversion rules (shared code in `base.py`, identical for both provid
 - Images: include bytes only from the **last 3 messages that contain images**; older images become the placeholder `[image: filename]`. Before encoding, downscale with Pillow so the long edge is at most `IMAGE_MAX_EDGE`, convert unsupported formats to JPEG/PNG, and keep each image under 5 MB. Base64-encode and attach in each provider's native image format.
 - Text attachments: inline the stored `text` under a header `--- file: filename ---`. Inlined text counts toward `TRANSCRIPT_CHAR_LIMIT`.
 - PDFs: out of scope for MVP (see milestones); insert the placeholder `[pdf: filename — not supported yet]`.
-- Trimming: if the transcript (text plus inlined file text) exceeds `TRANSCRIPT_CHAR_LIMIT`, drop the oldest messages first, but always keep the first human message of the thread as topic anchor. After trimming, the converted list must still start with a `user` message.
+- Trimming: the window start stays fixed until the transcript from there (text plus inlined file text) exceeds `TRANSCRIPT_CHAR_LIMIT`; then it moves forward to keep the newest messages within half the limit (at least one). Cutting in steps keeps the prompt prefix byte-stable between cuts, so prompt caches keep hitting. Always keep the first human message of the thread as topic anchor. After trimming, the converted list must still start with a `user` message.
 - Use `MAX_REPLY_TOKENS` as the output ceiling.
 
 Provider-specific:
 - **Both:** SDK clients get an explicit `base_url` (`https://api.anthropic.com`, `https://api.openai.com/v1`), and `.env` overrides the shell environment. The host shell may export `OPENAI_BASE_URL` / `OPENAI_API_KEY` for a company proxy; inheriting them would route private chats elsewhere.
-- **Claude:** current Claude models think by default, reasoning tokens count toward `max_tokens`, and on several current models thinking cannot be disabled (`{type: "disabled"}` returns 400). Omit the `thinking` parameter and control cost with `output_config: {effort: CLAUDE_EFFORT}` (default `low`, suited to chat); this works on every current model, so `CLAUDE_MODEL` stays freely swappable. No server-side refusal fallback: on Sonnet 5.5 it only retries `cyber` and `frontier_llm` declines, not `general_harms`, where art-related false positives would land; a refusal posts a notice instead. Enable prompt caching: stable system prompt first, a `cache_control` breakpoint on the last transcript content block, before the turn hint. In `DEBUG` mode, log `usage.cache_read_input_tokens` to verify caching works.
-- **GPT:** use the official SDK's Chat Completions API (verify the chosen `GPT_MODEL` is served there; otherwise use the Responses API with the same conversion rules). `GPT_REASONING_EFFORT` is sent as `reasoning_effort` only when set (valid values depend on the model); the ceiling goes in `max_completion_tokens`. `finish_reason: length` → truncated, `content_filter` or a non-empty `message.refusal` → refusal.
+- **Claude:** current Claude models think by default, reasoning tokens count toward `max_tokens`, and on several current models thinking cannot be disabled (`{type: "disabled"}` returns 400). Omit the `thinking` parameter and control cost with `output_config: {effort: CLAUDE_EFFORT}` (default `low`, suited to chat); this works on every current model, so `CLAUDE_MODEL` stays freely swappable. No server-side refusal fallback: on Sonnet 5.5 it only retries `cyber` and `frontier_llm` declines, not `general_harms`, where art-related false positives would land; a refusal posts a notice instead. Enable prompt caching: `cache_control` breakpoints on the system prompt and on the last transcript content block, before the turn hint. Each transcript message is its own content block, so new messages only append. In `DEBUG` mode, log input, cache read and cache write tokens to verify caching works.
+- **GPT:** use the official SDK's Chat Completions API (verify the chosen `GPT_MODEL` is served there; otherwise use the Responses API with the same conversion rules). `GPT_REASONING_EFFORT` is sent as `reasoning_effort` only when set (valid values depend on the model); the ceiling goes in `max_completion_tokens`. `finish_reason: length` → truncated, `content_filter` or a non-empty `message.refusal` → refusal. Prompt caching: an explicit `prompt_cache_breakpoint` on the last transcript content block (gpt-5.6 and later) and `prompt_cache_key` per channel; `DEBUG` logs cached and written tokens.
 
 ## 9. Webhooks (`webhooks.py`)
 

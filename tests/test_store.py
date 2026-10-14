@@ -24,12 +24,22 @@ async def test_round_trip_per_channel(store):
     assert got[0].author_id == 5 and got[0].id is not None
 
 
-async def test_trim_keeps_newest_and_first_human_anchor(store):
+async def test_trim_cuts_to_half_and_keeps_first_human_anchor(store):
     await store.append(msg("topic"))
     for i in range(10):
         await store.append(msg(f"m{i}" + "x" * 8, speaker="claude"))
-    got = await store.recent(1, 25)  # room for the two newest 10-char messages
-    assert [m.text[:2] for m in got] == ["to", "m8", "m9"]
+    got = await store.recent(1, 25)  # over the limit: cut back to 12 chars, the newest 10-char message
+    assert [m.text[:2] for m in got] == ["to", "m9"]
+
+
+async def test_window_start_stable_until_limit(store):
+    for i in range(3):
+        await store.append(msg(f"m{i}" + "x" * 8))
+    await store.recent(1, 25)
+    await store.append(msg("m3" + "x" * 8))
+    assert [m.text[:2] for m in await store.recent(1, 25)] == ["m0", "m2", "m3"]  # m0 is the anchor
+    await store.append(msg("m4" + "x" * 8))
+    assert [m.text[:2] for m in await store.recent(1, 25)] == ["m0", "m4"]
 
 
 async def test_newest_always_included_even_if_over_limit(store):

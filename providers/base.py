@@ -67,6 +67,9 @@ def to_messages(
 ) -> list[dict]:
     """Own messages become assistant turns; everyone else's are labeled and merged into user turns.
 
+    Each message keeps its own content blocks and content is always a block list, so a new message only
+    appends blocks: earlier blocks stay byte-identical and the cached prompt prefix keeps matching.
+
     images: keyed by (message id, attachment index); ImageData goes out via image_block, a str is a
     note for the placeholder. Images not in the map become plain placeholders.
     """
@@ -84,8 +87,7 @@ def to_messages(
                 else:
                     _add(parts, attachment_text(att, image), "\n")
         if turns and turns[-1][0] == role:
-            _add(turns[-1][1], parts[0], "\n\n")
-            turns[-1][1].extend(parts[1:])
+            turns[-1][1].extend(parts)
         else:
             turns.append((role, parts))
     # The API requires a user turn first.
@@ -94,16 +96,19 @@ def to_messages(
     return [{"role": role, "content": _content(parts)} for role, parts in turns]
 
 
+def cache_breakpoint(messages: list[dict], marker: dict) -> None:
+    """Mark the end of the transcript as cache breakpoint; the per-turn hint added after it stays uncached."""
+    blocks = messages[-1]["content"]
+    blocks[-1] = {**blocks[-1], **marker}
+
+
 def add_hint(messages: list[dict], hint: str) -> None:
     """Turn hint as the final user content; never stored in the transcript."""
-    text = f"[System]: {hint}"
+    block = {"type": "text", "text": f"[System]: {hint}"}
     if messages and messages[-1]["role"] == "user":
-        content = messages[-1]["content"]
-        messages[-1]["content"] = (
-            f"{content}\n\n{text}" if isinstance(content, str) else [*content, {"type": "text", "text": text}]
-        )
+        messages[-1]["content"] = [*messages[-1]["content"], block]
     else:
-        messages.append({"role": "user", "content": text})
+        messages.append({"role": "user", "content": [block]})
 
 
 def _add(parts: list, part: str | dict, sep: str) -> None:
@@ -114,9 +119,7 @@ def _add(parts: list, part: str | dict, sep: str) -> None:
         parts.append(part)
 
 
-def _content(parts: list) -> str | list[dict]:
-    if len(parts) == 1 and isinstance(parts[0], str):
-        return parts[0]
+def _content(parts: list) -> list[dict]:
     return [{"type": "text", "text": p} if isinstance(p, str) else p for p in parts]
 
 

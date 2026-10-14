@@ -17,6 +17,9 @@ ENV = {
 }
 CONFIG = load_config(ENV)
 TRANSCRIPT = [TranscriptMessage(channel_id=1, speaker="human", text="hi", display_name="Walrus")]
+CLAUDE_USAGE = SimpleNamespace(input_tokens=1, cache_read_input_tokens=0, cache_creation_input_tokens=0, output_tokens=1)
+GPT_USAGE = SimpleNamespace(prompt_tokens=1, completion_tokens=1,
+                            prompt_tokens_details=SimpleNamespace(cached_tokens=0, cache_write_tokens=0))
 
 
 # Endpoints stay pinned even when the shell exports overrides.
@@ -39,11 +42,12 @@ def claude_with(response=None, error=None):
 @pytest.mark.parametrize("stop_reason, stop", [("end_turn", "end"), ("max_tokens", "truncated"), ("refusal", "refusal")])
 async def test_claude_stop_mapping_and_text(stop_reason, stop):
     blocks = [SimpleNamespace(type="thinking"), SimpleNamespace(type="text", text="Hi "), SimpleNamespace(type="text", text="there")]
-    provider, client = claude_with(SimpleNamespace(content=blocks, stop_reason=stop_reason))
+    provider, client = claude_with(SimpleNamespace(content=blocks, stop_reason=stop_reason, usage=CLAUDE_USAGE))
     reply = await provider.respond("SYS", TRANSCRIPT, {}, "HINT")
     assert (reply.text, reply.stop) == ("Hi there", stop)
     kwargs = client.messages.create.call_args.kwargs
-    assert kwargs["system"] == "SYS" and kwargs["model"] == "claude-m"
+    assert kwargs["system"] == [{"type": "text", "text": "SYS", "cache_control": {"type": "ephemeral"}}]
+    assert kwargs["model"] == "claude-m"
     assert kwargs["output_config"] == {"effort": "low"}
     assert "thinking" not in kwargs
 
@@ -59,7 +63,7 @@ async def test_claude_error_wrapped():
 
 def gpt_with(config=CONFIG, content="Yo", finish_reason="stop", refusal=None, error=None):
     message = SimpleNamespace(content=content, refusal=refusal)
-    response = SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason=finish_reason)])
+    response = SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason=finish_reason)], usage=GPT_USAGE)
     client = MagicMock()
     client.chat.completions.create = AsyncMock(return_value=response, side_effect=error)
     return GPTProvider(config, client), client
@@ -72,7 +76,11 @@ async def test_gpt_stop_mapping(finish_reason, stop):
     assert reply.stop == stop
     kwargs = client.chat.completions.create.call_args.kwargs
     assert kwargs["messages"][0] == {"role": "system", "content": "SYS"}
-    assert kwargs["messages"][1] == {"role": "user", "content": "[Walrus]: hi\n\n[System]: HINT"}
+    assert kwargs["messages"][1] == {"role": "user", "content": [
+        {"type": "text", "text": "[Walrus]: hi", "prompt_cache_breakpoint": {"mode": "explicit"}},
+        {"type": "text", "text": "[System]: HINT"},
+    ]}
+    assert kwargs["prompt_cache_key"] == "gpt-1"
     assert kwargs["max_completion_tokens"] == 4000
     assert "reasoning_effort" not in kwargs
 
@@ -104,7 +112,7 @@ IMAGES = {(3, 0): ImageData("image/png", "B64")}
 
 
 async def test_claude_image_block():
-    provider, client = claude_with(SimpleNamespace(content=[], stop_reason="end_turn"))
+    provider, client = claude_with(SimpleNamespace(content=[], stop_reason="end_turn", usage=CLAUDE_USAGE))
     await provider.respond("SYS", IMAGE_TRANSCRIPT, IMAGES, "HINT")
     content = client.messages.create.call_args.kwargs["messages"][0]["content"]
     assert content[1] == {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "B64"},
@@ -115,13 +123,14 @@ async def test_gpt_image_block():
     provider, client = gpt_with()
     await provider.respond("SYS", IMAGE_TRANSCRIPT, IMAGES, "HINT")
     content = client.chat.completions.create.call_args.kwargs["messages"][1]["content"]
-    assert content[1] == {"type": "image_url", "image_url": {"url": "data:image/png;base64,B64"}}
+    assert content[1] == {"type": "image_url", "image_url": {"url": "data:image/png;base64,B64"},
+                          "prompt_cache_breakpoint": {"mode": "explicit"}}
 
 
 # Turn hint and cache breakpoint
 
 async def test_claude_cache_breakpoint_before_hint():
-    provider, client = claude_with(SimpleNamespace(content=[], stop_reason="end_turn"))
+    provider, client = claude_with(SimpleNamespace(content=[], stop_reason="end_turn", usage=CLAUDE_USAGE))
     await provider.respond("SYS", TRANSCRIPT, {}, "Your turn.")
     kwargs = client.messages.create.call_args.kwargs
     assert "cache_control" not in kwargs
@@ -134,8 +143,8 @@ async def test_claude_cache_breakpoint_before_hint():
 async def test_gpt_hint_last():
     provider, client = gpt_with()
     await provider.respond("SYS", TRANSCRIPT, {}, "Your turn.")
-    assert client.chat.completions.create.call_args.kwargs["messages"][-1] == {
-        "role": "user", "content": "[Walrus]: hi\n\n[System]: Your turn."}
+    assert client.chat.completions.create.call_args.kwargs["messages"][-1]["content"][-1] == {
+        "type": "text", "text": "[System]: Your turn."}
 
 
 # Out of credits

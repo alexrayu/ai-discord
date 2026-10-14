@@ -28,23 +28,23 @@ def test_human_label(name, expected):
 def test_roles_labels_and_merging_from_claude_view():
     transcript = [human("hi"), ai("gpt", "yo"), ai("claude", "hey"), human("q", "Anna")]
     assert to_messages(transcript, "claude") == [
-        {"role": "user", "content": "[Walrus]: hi\n\n[Quill]: yo"},
-        {"role": "assistant", "content": "hey"},
-        {"role": "user", "content": "[Anna]: q"},
+        {"role": "user", "content": [{"type": "text", "text": "[Walrus]: hi"}, {"type": "text", "text": "[Quill]: yo"}]},
+        {"role": "assistant", "content": [{"type": "text", "text": "hey"}]},
+        {"role": "user", "content": [{"type": "text", "text": "[Anna]: q"}]},
     ]
 
 
 def test_same_transcript_from_gpt_view():
     transcript = [human("hi"), ai("gpt", "yo"), ai("claude", "hey")]
     assert to_messages(transcript, "gpt") == [
-        {"role": "user", "content": "[Walrus]: hi"},
-        {"role": "assistant", "content": "yo"},
-        {"role": "user", "content": "[Claude]: hey"},
+        {"role": "user", "content": [{"type": "text", "text": "[Walrus]: hi"}]},
+        {"role": "assistant", "content": [{"type": "text", "text": "yo"}]},
+        {"role": "user", "content": [{"type": "text", "text": "[Claude]: hey"}]},
     ]
 
 
 def test_leading_assistant_dropped():
-    assert to_messages([ai("claude", "a"), human("b")], "claude") == [{"role": "user", "content": "[Walrus]: b"}]
+    assert to_messages([ai("claude", "a"), human("b")], "claude") == [{"role": "user", "content": [{"type": "text", "text": "[Walrus]: b"}]}]
 
 
 # Reply handling
@@ -103,7 +103,8 @@ def test_images_placeholders_and_merging():
     images = {(7, 0): ImageData("image/png", "B64"), (7, 2): "unsupported format"}
     content = to_messages([human("hi"), msg], "claude", images, lambda i: {"img": i.data})[0]["content"]
     assert content == [
-        {"type": "text", "text": "[Walrus]: hi\n\n[Walrus]: look"},
+        {"type": "text", "text": "[Walrus]: hi"},
+        {"type": "text", "text": "[Walrus]: look"},
         {"img": "B64"},
         {"type": "text", "text": "[image: old.png]\n[image: x.heic - unsupported format]\n[file: note.txt - not supported yet]"},
     ]
@@ -113,7 +114,7 @@ def test_hint_after_own_message_is_new_user_turn():
     from providers.base import add_hint
     messages = to_messages([human("hi"), ai("claude", "yo")], "claude")
     add_hint(messages, "Your turn.")
-    assert messages[-1] == {"role": "user", "content": "[System]: Your turn."}
+    assert messages[-1] == {"role": "user", "content": [{"type": "text", "text": "[System]: Your turn."}]}
 
 
 def test_text_files_inlined_and_placeholders():
@@ -121,6 +122,6 @@ def test_text_files_inlined_and_placeholders():
     atts = (Attachment("a.py", "text/x-python", "text", "u", "print(1)"), Attachment("big.log", "text/plain", "text", "u"),
             Attachment("doc.pdf", "application/pdf", "pdf", "u"))
     msg = TranscriptMessage(channel_id=1, speaker="human", text="see", display_name="Walrus", attachments=atts, id=1)
-    assert to_messages([msg], "claude")[0]["content"] == (
+    assert to_messages([msg], "claude")[0]["content"][0]["text"] == (
         "[Walrus]: see\n--- file: a.py ---\nprint(1)\n[file: big.log - too large or unreadable]\n[pdf: doc.pdf - not supported yet]"
     )
